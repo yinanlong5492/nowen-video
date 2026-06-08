@@ -21,6 +21,7 @@ interface MediaCardProps {
   onEditMetadata?: (id: string) => void
   onDelete?: (id: string) => void
   isWide?: boolean
+  showEpisodeInfo?: boolean
 }
 
 export default function MediaCard({
@@ -33,6 +34,7 @@ export default function MediaCard({
   onEditMetadata,
   onDelete,
   isWide = false,
+  showEpisodeInfo = false,
 }: MediaCardProps) {
   const cardRef = useRef<HTMLDivElement>(null)
   const { playTrack } = useMusicPlayerStore()
@@ -91,6 +93,9 @@ export default function MediaCard({
   let playTo: string
   if (isMusic) {
     playTo = '/music'
+  } else if (series && media && media.media_type === 'episode' && showEpisodeInfo) {
+    // 显示具体集数时，直接跳转到剧集播放页
+    playTo = `/play/${media.id}`
   } else if (series) {
     playTo = `/series/${series.id}`
   } else if (media?.series_id) {
@@ -100,12 +105,12 @@ export default function MediaCard({
   }
 
   // 标题、年份、评分、海报
-  let title: string
-  let year: number
-  let rating: number
-  let posterUrl: string
-  let hasPoster: boolean
-  let duration: string
+  let title: string = ''
+  let year: number = 0
+  let rating: number = 0
+  let posterUrl: string = ''
+  let hasPoster: boolean = false
+  let duration: string = ''
   let seriesInfo: string = ''
 
   if (isMusic) {
@@ -115,10 +120,24 @@ export default function MediaCard({
     posterUrl = musicApi.getTrackCoverUrl(music!.id)
     hasPoster = true
     duration = ''
+  } else if (series && media && media.media_type === 'episode' && showEpisodeInfo) {
+    // 显示具体集数信息
+    const seasonNum = media.season_num || 1
+    const episodeNum = media.episode_num || 1
+    const episodeTitle = media.episode_title || ''
+    // 标题格式：S01E01 - 集标题
+    title = series.title
+    year = series.year
+    rating = series.rating
+    seriesInfo = `S${String(seasonNum).padStart(2, '0')}E${String(episodeNum).padStart(2, '0')}${episodeTitle ? ` - ${episodeTitle}` : ''}`
   } else {
     title = series ? series.title : media!.title
     year = series ? series.year : media!.year
     rating = series ? series.rating : media!.rating
+  }
+
+  // 设置海报和时长（非音乐情况下）
+  if (!isMusic) {
     const posterVersion = usePosterVersion()
     
     // 横板海报视图优先使用横幅海报（backdrop）
@@ -148,10 +167,15 @@ export default function MediaCard({
           : !!media!.poster_path
     }
 
-    duration = formatDuration(series ? (series.episodes?.[0]?.duration || 0) : (media!.duration || 0))
+    // 显示具体集数时使用该集的时长，否则使用默认时长
+    if (series && media && media.media_type === 'episode' && showEpisodeInfo) {
+      duration = formatDuration(media.duration || 0)
+    } else {
+      duration = formatDuration(series ? (series.episodes?.[0]?.duration || 0) : (media!.duration || 0))
+    }
 
-    // 计算剧集信息
-    if (isSeries && series) {
+    // 计算剧集信息（非显示具体集数的情况下）
+    if (isSeries && series && !(media && media.media_type === 'episode' && showEpisodeInfo)) {
       const episodes = series.episodes || []
       const seasonCount = series.season_count || 0
       const episodeCount = series.episode_count || episodes.length

@@ -1,41 +1,47 @@
-import { useTranslation } from '@/i18n'
-import { motion } from 'framer-motion'
-import { useHomeData } from './hooks/useHomeData'
-import ContinueWatchingRow from './components/ContinueWatchingRow'
-import LibraryRow from './components/LibraryRow'
+import { useTranslation } from '@/i18n';
+import { useHomeData } from './hooks/useHomeData';
+import LibraryRow from './components/LibraryRow';
+import ContinueWatchingRow from './components/ContinueWatchingRow';
 
 export default function HomePage() {
-  const { t } = useTranslation()
-  const { data, loading } = useHomeData()
-  const { continueList, libraries } = data || {}
+  const { t } = useTranslation();
+  const { data, loading } = useHomeData();
+  const { continueList, libraries } = data || {};
 
   return (
-    <div className="space-y-8">
-      {/* 我的媒体库 — 横向滚动 */}
+    <div className="space-y-3">
+      {/* 我的媒体库 — 使用 LibraryRow (library 模式) */}
       {libraries && libraries.length > 0 && (
-        <LibraryRow mode="library" title={t('home.myLibraries')} libraries={libraries} />
+        <LibraryRow
+          mode="library"
+          title={t('home.myLibraries')}
+          libraries={libraries}
+        />
       )}
 
-      {/* 继续观看 */}
+      {/* 继续观看 — 使用 ContinueWatchingRow */}
       {continueList && continueList.length > 0 && (
-        <ContinueWatchingRow items={continueList} title={t('home.continueWatching')} />
+        <ContinueWatchingRow
+          title={t('home.continueWatching')}
+          items={continueList}
+        />
       )}
 
-      {/* 每个媒体库的最近添加 */}
-      {libraries && libraries.map((lib) => (
+      {/* 每个媒体库的最近添加 — 使用 LibraryRow (recent 模式) */}
+      {libraries?.map((lib) => (
         lib.recentItems.length > 0 && (
-          <LibraryRow key={lib.id} mode="recent" title={lib.name} library={lib} />
+          <LibraryRow
+            key={lib.id}
+            mode="recent"
+            title={lib.name}
+            library={lib}
+          />
         )
       ))}
 
       {/* 骨架屏加载状态 */}
-      {loading && continueList?.length === 0 && libraries?.length === 0 && (
-        <motion.section
-          className="space-y-6"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3 }}
-        >
+      {loading && !continueList?.length && (!libraries || libraries.length === 0) && (
+        <div className="space-y-3">
           <div>
             <div className="skeleton mb-5 h-7 w-32 rounded-lg" />
             <div className="flex gap-4 overflow-hidden pb-2">
@@ -64,8 +70,9 @@ export default function HomePage() {
               ))}
             </div>
           </div>
-        </motion.section>
+        </div>
       )}
     </div>
-  )
+  );
 }
+

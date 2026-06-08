@@ -72,8 +72,8 @@ export default memo(function SeriesHeroSection({
 
   return (
     <div className="relative" style={{ background: 'var(--bg-base)' }}>
-      {/* 背景图 */}
-      <div className="relative overflow-hidden sm:h-[80vh]" style={{ background: 'var(--bg-base)' }}>
+      {/* 背景图 - 延伸到顶部 */}
+      <div className="relative overflow-hidden sm:h-[80vh]" style={{ background: 'var(--bg-base)', marginTop: '-64px', paddingTop: '64px' }}>
         <div className="absolute inset-0" style={{ background: 'var(--bg-surface)' }}>
           <img
             src={streamApi.getSeriesPosterUrl(series.id, posterVersion)}

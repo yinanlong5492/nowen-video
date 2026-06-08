@@ -4,7 +4,7 @@ export { default as SeasonHeroSection } from './SeasonHeroSection'
 export { default as SeasonGrid } from './SeasonGrid'
 export { default as MediaInfoSection } from './MediaInfoSection'
 export { default as MediaTechSpecs } from './MediaTechSpecs'
-export { default as RecommendationCarousel } from './RecommendationCarousel'
+
 export { default as TrailerModal } from './TrailerModal'
 export { default as CastGrid } from './CastGrid'
 export { default as CollectionCarousel } from './CollectionCarousel'

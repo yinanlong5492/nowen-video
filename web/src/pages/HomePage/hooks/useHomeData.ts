@@ -1,15 +1,14 @@
 import { useEffect, useRef, useCallback } from 'react'
-import { mediaApi, recommendApi, libraryApi } from '@/api'
+import { mediaApi, libraryApi } from '@/api'
 import { useWebSocket, WS_EVENTS } from '@/hooks/useWebSocket'
 import { useToast } from '@/components/Toast'
 import { useTranslation } from '@/i18n'
 import { usePageCache } from '@/hooks/usePageCache'
-import type { WatchHistory, RecommendedMedia } from '@/types'
+import type { WatchHistory } from '@/types'
 import { getRandomCovers, LibraryWithCovers } from '../utils/homeUtils'
 
 export interface HomeData {
   continueList: WatchHistory[]
-  recommendations: RecommendedMedia[]
   libraries: LibraryWithCovers[]
   allFailed: boolean
 }
@@ -23,9 +22,8 @@ export function useHomeData() {
   const { data, loading, refetch, invalidate } = usePageCache<HomeData>(
     'home:overview',
     async () => {
-      const [continueResult, recommendResult, libraryResult] = await Promise.allSettled([
+      const [continueResult, libraryResult] = await Promise.allSettled([
         mediaApi.continueWatching(10),
-        recommendApi.getRecommendations(12),
         libraryApi.list({ sort: 'id', sort_order: 'asc' }),
       ])
 
@@ -52,9 +50,8 @@ export function useHomeData() {
 
       return {
         continueList: continueResult.status === 'fulfilled' ? (continueResult.value.data.data || []) : [],
-        recommendations: recommendResult.status === 'fulfilled' ? (recommendResult.value.data.data || []) : [],
         libraries,
-        allFailed: [continueResult, recommendResult].every((r) => r.status === 'rejected'),
+        allFailed: continueResult.status === 'rejected' && libraries.length === 0,
       }
     },
     { ttl: 30_000 },

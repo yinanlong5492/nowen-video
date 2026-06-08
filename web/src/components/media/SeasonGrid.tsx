@@ -6,6 +6,7 @@ import { Play, Tv, Heart, Eye, MoreHorizontal, Share2, RefreshCw, Link2, Unlink,
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/components/Toast'
 import { createPortal } from 'react-dom'
+import HorizontalScroll from '@/components/common/HorizontalScroll'
 
 interface SeasonGridProps {
   seriesId: string
@@ -14,11 +15,11 @@ interface SeasonGridProps {
   watchedSeasonNums?: Set<number>
   onFavorite?: () => void
   onMarkSeasonWatched?: (seasonNum: number, watched: boolean) => Promise<void>
-  onManualMatch?: () => void
-  onUnmatch?: () => void
-  onRefreshMetadata?: () => void
-  onEditMetadata?: () => void
-  onDelete?: () => void
+  onRefreshSeasonMetadata?: (seasonNum: number) => void
+  onEditSeasonMetadata?: (seasonNum: number) => void
+  onMatchSeason?: (seasonNum: number) => void
+  onUnmatchSeason?: (seasonNum: number) => void
+  onDeleteSeason?: (seasonNum: number) => void
 }
 
 function SeasonCard({
@@ -28,11 +29,11 @@ function SeasonCard({
   isSeasonWatched,
   onFavorite,
   onMarkSeasonWatched,
-  onManualMatch,
-  onUnmatch,
-  onRefreshMetadata,
-  onEditMetadata,
-  onDelete,
+  onRefreshSeasonMetadata,
+  onEditSeasonMetadata,
+  onMatchSeason,
+  onUnmatchSeason,
+  onDeleteSeason,
 }: {
   seriesId: string
   season: SeasonInfo
@@ -40,11 +41,11 @@ function SeasonCard({
   isSeasonWatched?: boolean
   onFavorite?: () => void
   onMarkSeasonWatched?: (seasonNum: number, watched: boolean) => Promise<void>
-  onManualMatch?: () => void
-  onUnmatch?: () => void
-  onRefreshMetadata?: () => void
-  onEditMetadata?: () => void
-  onDelete?: () => void
+  onRefreshSeasonMetadata?: (seasonNum: number) => void
+  onEditSeasonMetadata?: (seasonNum: number) => void
+  onMatchSeason?: (seasonNum: number) => void
+  onUnmatchSeason?: (seasonNum: number) => void
+  onDeleteSeason?: (seasonNum: number) => void
 }) {
   const [imgError, setImgError] = useState(false)
   const [showMore, setShowMore] = useState(false)
@@ -103,7 +104,7 @@ function SeasonCard({
 
   return (
     <div
-      className="group flex flex-col overflow-hidden transition-all duration-300 cursor-pointer"
+      className="group flex flex-col overflow-hidden transition-all duration-300 cursor-pointer w-36 flex-shrink-0"
       onClick={handleCardClick}
     >
       <div className="relative aspect-[2/3] rounded-xl overflow-hidden">
@@ -223,45 +224,45 @@ function SeasonCard({
           >
             {isAdmin && (
               <>
-                <div className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>剧集管理</div>
+                <div className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>季管理</div>
                 <button
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onManualMatch?.() }}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onMatchSeason?.(season.season_num) }}
                   className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors hover:bg-neon-blue/5"
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   <Link2 size={14} />
-                  手动匹配剧集
+                  手动匹配本季
                 </button>
                 <button
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onUnmatch?.() }}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onUnmatchSeason?.(season.season_num) }}
                   className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors hover:bg-neon-blue/5"
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   <Unlink size={14} />
-                  解除匹配剧集
+                  解除匹配本季
                 </button>
                 <button
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onRefreshMetadata?.() }}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onRefreshSeasonMetadata?.(season.season_num) }}
                   className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors hover:bg-neon-blue/5"
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   <RefreshCw size={14} />
-                  刷新元数据
+                  刷新季元数据
                 </button>
                 <button
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onEditMetadata?.() }}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onEditSeasonMetadata?.(season.season_num) }}
                   className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors hover:bg-neon-blue/5"
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   <Pencil size={14} />
-                  编辑元数据
+                  编辑季信息
                 </button>
                 <button
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onDelete?.() }}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onDeleteSeason?.(season.season_num) }}
                   className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300"
                 >
                   <Trash2 size={14} />
-                  删除剧集
+                  删除本季
                 </button>
                 <div className="my-1 mx-3 h-px" style={{ background: 'var(--border-default)' }} />
               </>
@@ -295,34 +296,38 @@ export default function SeasonGrid({
   watchedSeasonNums,
   onFavorite,
   onMarkSeasonWatched,
-  onManualMatch,
-  onUnmatch,
-  onRefreshMetadata,
-  onEditMetadata,
-  onDelete,
+  onRefreshSeasonMetadata,
+  onEditSeasonMetadata,
+  onMatchSeason,
+  onUnmatchSeason,
+  onDeleteSeason,
 }: SeasonGridProps) {
   if (seasons.length === 0) return null
 
+  // 使用 HorizontalScroll 实现滚动功能，支持网格模式
   return (
-    <section>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-9">
-        {seasons.map((season) => (
-          <SeasonCard
-            key={season.season_num}
-            seriesId={seriesId}
-            season={season}
-            isFavorited={isFavorited}
-            isSeasonWatched={watchedSeasonNums?.has(season.season_num)}
-            onFavorite={onFavorite}
-            onMarkSeasonWatched={onMarkSeasonWatched}
-            onManualMatch={onManualMatch}
-            onUnmatch={onUnmatch}
-            onRefreshMetadata={onRefreshMetadata}
-            onEditMetadata={onEditMetadata}
-            onDelete={onDelete}
-          />
-        ))}
-      </div>
-    </section>
+    <HorizontalScroll
+      title="季列表"
+      itemCount={seasons.length}
+      gridCols={3}
+      gridGap="gap-4"
+    >
+      {seasons.map((season) => (
+        <SeasonCard
+          key={season.season_num}
+          seriesId={seriesId}
+          season={season}
+          isFavorited={isFavorited}
+          isSeasonWatched={watchedSeasonNums?.has(season.season_num)}
+          onFavorite={onFavorite}
+          onMarkSeasonWatched={onMarkSeasonWatched}
+          onRefreshSeasonMetadata={onRefreshSeasonMetadata}
+          onEditSeasonMetadata={onEditSeasonMetadata}
+          onMatchSeason={onMatchSeason}
+          onUnmatchSeason={onUnmatchSeason}
+          onDeleteSeason={onDeleteSeason}
+        />
+      ))}
+    </HorizontalScroll>
   )
 }

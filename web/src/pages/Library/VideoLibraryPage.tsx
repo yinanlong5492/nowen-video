@@ -10,7 +10,7 @@ import { useLibraryFilter } from './hooks/useLibraryFilter'
 import { useLibraryPagination } from './hooks/useLibraryPagination'
 import { useLibraryAdmin } from './hooks/useLibraryAdmin'
 import { useVideoLibrary } from './hooks/useVideoLibrary'
-import type { Library } from '@/types'
+import type { Library, Media } from '@/types'
 import { RefreshModal, DeleteModal, MatchModal, EditModal, UnmatchModal } from '@/components/GlobalModals'
 import { adminApi, streamApi } from '@/api'
 import { useToast } from '@/components/Toast'
@@ -21,7 +21,7 @@ interface VideoLibraryPageProps {
 
 export function VideoLibraryPage({ library }: VideoLibraryPageProps) {
   const { settings, fetchSettings } = useSystemSettingsStore()
-  const { page, size, setPage, setSize } = useLibraryPagination()
+  const { page, size, setPage } = useLibraryPagination()
   const { deleteMedia, unmatchMedia } = useLibraryAdmin()
   const user = useAuthStore((s) => s.user)
   const isAdmin = user?.role === 'admin'
@@ -114,7 +114,7 @@ export function VideoLibraryPage({ library }: VideoLibraryPageProps) {
     setEditId(id)
     setEditType(isSeries ? 'series' : 'media')
     setEditTmdbId(data?.tmdb_id)
-    setEditMediaType(data?.media_type)
+    setEditMediaType(isSeries ? 'tv' : (data as Media)?.media_type)
     setEditForm({
       title: data?.title || '',
       orig_title: data?.orig_title || '',
@@ -122,7 +122,7 @@ export function VideoLibraryPage({ library }: VideoLibraryPageProps) {
       rating: data?.rating || 0,
       genres: data?.genres || '',
       overview: data?.overview || '',
-      tagline: data?.tagline || '',
+      tagline: isSeries ? '' : (data as Media)?.tagline || '',
       country: data?.country || '',
       language: data?.language || '',
       studio: data?.studio || '',

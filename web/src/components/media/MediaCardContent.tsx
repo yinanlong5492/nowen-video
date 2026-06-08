@@ -48,12 +48,12 @@ export function MediaCardContent({
   return (
     <div className="relative">
       {/* 海报区域 */}
-      <div className={`relative rounded-xl bg-theme-bg-surface isolate overflow-hidden ${isWide ? 'aspect-video' : 'aspect-[2/3]'}`}>
+      <div className={`relative rounded-xl bg-theme-bg-surface isolate overflow-hidden ${isWide ? 'aspect-video' : isMusic ? 'aspect-square' : 'aspect-[2/3]'}`}>
         {hasPoster && posterUrl && (
           <img
             src={posterUrl}
             alt={title}
-            className="h-full w-full object-cover"
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
             loading="lazy"
             onError={(e) => {
               (e.target as HTMLImageElement).style.display = 'none'
@@ -105,21 +105,23 @@ export function MediaCardContent({
 
         {/* 分辨率标签（仅电影） */}
         {!isSeries && !isMusic && resolution && (
-          <span className="badge-neon absolute right-2 top-2 z-20" style={{ transform: 'translateZ(0)' }}>
+          <span className="badge-neon absolute right-2 top-2 z-20" style={{ 
+            transform: 'translateZ(0)',
+            background: 'rgba(0,0,0,0.65)',
+            border: '1px solid rgba(255,255,255,0.15)',
+          }}>
             {resolution}
           </span>
         )}
 
         {/* 评分标签 */}
         {!isMusic && rating !== undefined && rating !== null && rating > 0 && (
-          <span className="absolute left-2 top-2 z-20 rounded-md px-2 py-0.5 text-xs font-medium backdrop-blur-md"
-            style={{
-              background: 'rgba(0,0,0,0.65)',
-              color: '#FACC15',
-              border: '1px solid rgba(255,255,255,0.15)',
-              transform: 'translateZ(0)',
-            }}
-          >
+          <span className="badge-neon absolute left-2 top-2 z-20" style={{ 
+            transform: 'translateZ(0)',
+            background: 'rgba(0,0,0,0.65)',
+            color: '#FACC15',
+            border: '1px solid rgba(255,255,255,0.15)',
+          }}>
             ★ {rating.toFixed(1)}
           </span>
         )}
@@ -158,7 +160,7 @@ export function MediaCardContent({
 
       {/* 信息区域 */}
       <div className="px-2 pt-2.5 pb-2 text-center">
-        <h3 className="truncate text-sm font-medium leading-snug text-theme-primary transition-colors duration-200 hover:text-neon">
+        <h3 className="truncate text-sm font-medium leading-snug text-theme-primary transition-colors duration-200 group-hover:text-neon">
           {title}
         </h3>
         {subtitle && subtitle.length > 0 && (

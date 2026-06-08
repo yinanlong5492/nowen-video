@@ -27,28 +27,14 @@ export function useSmoothScroll<T extends HTMLElement>(scrollAmount: number = 0.
 
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current)
+      animationFrameRef.current = null
     }
 
-    const startScrollLeft = el.scrollLeft
-    const distance = targetScrollLeft - startScrollLeft
-    const duration = 300
-    const startTime = performance.now()
-
-    const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3)
-
-    const animate = (currentTime: number) => {
-      const elapsed = currentTime - startTime
-      const progress = Math.min(elapsed / duration, 1)
-      const easeProgress = easeOutCubic(progress)
-
-      el.scrollLeft = startScrollLeft + distance * easeProgress
-
-      if (progress < 1) {
-        animationFrameRef.current = requestAnimationFrame(animate)
-      }
-    }
-
-    animationFrameRef.current = requestAnimationFrame(animate)
+    // 使用浏览器原生平滑滚动 API，响应更快、性能更好
+    el.scrollTo({
+      left: targetScrollLeft,
+      behavior: 'smooth'
+    })
   }, [])
 
   const scroll = useCallback((direction: 'left' | 'right') => {

@@ -54,10 +54,10 @@ export async function getRandomCovers(lib: Library): Promise<{
       })
       .map((m) => {
         if (m.type === 'series' && m.series) {
-          return streamApi.getSeriesBackdropUrl(m.series.id)
+          return streamApi.getSeriesPosterUrl(m.series.id)
         }
         if (m.type === 'movie' && m.media) {
-          return streamApi.getBackdropUrl(m.media.id)
+          return streamApi.getPosterUrl(m.media.id)
         }
         if (m.type === 'music' && m.music) {
           if (m.music.album_id) {
