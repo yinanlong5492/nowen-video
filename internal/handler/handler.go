@@ -24,7 +24,6 @@ type Handlers struct {
 	WS             *WSHandler
 	Bookmark       *BookmarkHandler
 	Comment        *CommentHandler
-	Stats          *StatsHandler
 	AI             *AIHandler
 	ScrapeManager  *ScrapeManagerHandler
 	FileManager    *FileManagerHandler
@@ -41,6 +40,8 @@ type Handlers struct {
 	Music           *MusicHandler
 	Photo           *PhotoHandler
 	Federation      *FederationHandler
+	// 有声书
+	AudioBook *AudioBookHandler
 	// V3: 新增处理器
 	AIScene *AISceneHandler
 	// V5: Pulse 数据中心
@@ -66,13 +67,14 @@ type Handlers struct {
 	LazyIngest *LazyIngestHandler
 	// AI 成本：模型列表 / 估价 / 累计花费
 	AICost *AICostHandler
+	
 }
 
 func NewHandlers(services *service.Services, repos *repository.Repositories, cfg *config.Config, logger *zap.SugaredLogger) *Handlers {
 	h := &Handlers{
 		Auth:    &AuthHandler{authService: services.Auth, serverName: cfg.Emby.ServerName, logger: logger},
 		Library: &LibraryHandler{libService: services.Library, permSvc: services.Permission, logger: logger},
-		Media:   &MediaHandler{mediaService: services.Media, personRepo: repos.Person, mediaPersonRepo: repos.MediaPerson, logger: logger},
+		Media:   &MediaHandler{mediaService: services.Media, metadataService: services.Metadata, personRepo: repos.Person, mediaPersonRepo: repos.MediaPerson, logger: logger},
 		Series:  &SeriesHandler{seriesService: services.Series, mediaPersonRepo: repos.MediaPerson, logger: logger},
 		Stream:  &StreamHandler{streamService: services.Stream, transcodeService: services.Transcode, logger: logger},
 		User:    &UserHandler{userService: services.User, authService: services.Auth, mediaService: services.Media, loginLogRepo: repos.LoginLog, logger: logger},
@@ -102,7 +104,6 @@ func NewHandlers(services *service.Services, repos *repository.Repositories, cfg
 		WS:        &WSHandler{hub: services.WSHub, logger: logger},
 		Bookmark:  &BookmarkHandler{bookmarkService: services.Bookmark, logger: logger},
 		Comment:   &CommentHandler{commentService: services.Comment, logger: logger},
-		Stats:     &StatsHandler{statsService: services.Stats, logger: logger},
 		AI: &AIHandler{
 			aiService:   services.AI,
 			router:      services.AIRouter,
@@ -126,6 +127,7 @@ func NewHandlers(services *service.Services, repos *repository.Repositories, cfg
 		Music:           &MusicHandler{musicService: services.Music, logger: logger},
 		Photo:           &PhotoHandler{photoService: services.Photo, logger: logger},
 		Federation:      &FederationHandler{federationService: services.Federation, logger: logger},
+		AudioBook:       &AudioBookHandler{service: services.AudioBook, logger: logger},
 		// V3
 		AIScene: &AISceneHandler{sceneService: services.AIScene, logger: logger},
 		// V5: Pulse 数据中心

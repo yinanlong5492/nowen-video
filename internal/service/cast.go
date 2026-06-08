@@ -156,7 +156,7 @@ func (s *CastService) discoverDevices() {
 }
 
 // parseSSDPResponse 解析SSDP响应
-func (s *CastService) parseSSDPResponse(response string, addr *net.UDPAddr) *CastDevice {
+func (s *CastService) parseSSDPResponse(response string, _ *net.UDPAddr) *CastDevice {
 	lines := strings.Split(response, "\r\n")
 	headers := make(map[string]string)
 

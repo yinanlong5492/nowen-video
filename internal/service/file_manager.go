@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,13 +20,16 @@ import (
 
 // FileManagerService 影视文件管理服务
 type FileManagerService struct {
-	mediaRepo  *repository.MediaRepo
-	seriesRepo *repository.SeriesRepo
-	opLogRepo  *repository.FileOpLogRepo // 操作日志持久化（替代内存切片）
-	metadata   *MetadataService
-	ai         *AIService
-	wsHub      *WSHub
-	logger     *zap.SugaredLogger
+	mediaRepo        *repository.MediaRepo
+	seriesRepo       *repository.SeriesRepo
+	opLogRepo        *repository.FileOpLogRepo
+	libraryRepo      *repository.LibraryRepo
+	metadata         *MetadataService
+	ai               *AIService
+	wsHub            *WSHub
+	musicService     *MusicService
+	audioBookService *AudioBookService
+	logger           *zap.SugaredLogger
 
 	// 内存缓存（只读快缓存，为了兼容旧 API）
 	opLogMu sync.Mutex
@@ -94,6 +98,7 @@ type FileManagerStats struct {
 	TotalFiles       int64 `json:"total_files"`
 	MovieCount       int64 `json:"movie_count"`
 	EpisodeCount     int64 `json:"episode_count"`
+	MusicCount       int64 `json:"music_count"`     // 音乐文件数量
 	ScrapedCount     int64 `json:"scraped_count"`   // scraped + partial + manual
 	PartialCount     int64 `json:"partial_count"`   // 部分成功（海报/简介缺失）
 	FailedCount      int64 `json:"failed_count"`    // 刮削失败
@@ -108,18 +113,24 @@ func NewFileManagerService(
 	mediaRepo *repository.MediaRepo,
 	seriesRepo *repository.SeriesRepo,
 	opLogRepo *repository.FileOpLogRepo,
+	libraryRepo *repository.LibraryRepo,
 	metadata *MetadataService,
 	ai *AIService,
+	musicService *MusicService,
+	audioBookService *AudioBookService,
 	logger *zap.SugaredLogger,
 ) *FileManagerService {
 	return &FileManagerService{
-		mediaRepo:  mediaRepo,
-		seriesRepo: seriesRepo,
-		opLogRepo:  opLogRepo,
-		metadata:   metadata,
-		ai:         ai,
-		logger:     logger,
-		opLogs:     make([]FileOperationLog, 0, 500),
+		mediaRepo:        mediaRepo,
+		seriesRepo:       seriesRepo,
+		opLogRepo:        opLogRepo,
+		libraryRepo:      libraryRepo,
+		metadata:         metadata,
+		ai:               ai,
+		musicService:     musicService,
+		audioBookService: audioBookService,
+		logger:           logger,
+		opLogs:           make([]FileOperationLog, 0, 500),
 	}
 }
 
@@ -132,7 +143,243 @@ func (s *FileManagerService) SetWSHub(hub *WSHub) {
 
 // ListFiles 获取影视文件列表（支持多条件筛选）
 func (s *FileManagerService) ListFiles(page, size int, libraryID, mediaType, keyword, sortBy, sortOrder string, scrapedOnly *bool) ([]model.Media, int64, error) {
+	isMusicLibrary := false
+	isAudioBookLibrary := false
+	if libraryID != "" && s.libraryRepo != nil {
+		lib, libErr := s.libraryRepo.FindByID(libraryID)
+		if libErr == nil {
+			if strings.EqualFold(lib.Type, "music") {
+				isMusicLibrary = true
+			} else if strings.EqualFold(lib.Type, "audiobook") {
+				isAudioBookLibrary = true
+			}
+		}
+	}
+
+	if mediaType == "music" || isMusicLibrary {
+		return s.ListMusicFiles(page, size, libraryID, keyword, sortBy, sortOrder)
+	}
+	if mediaType == "audiobook" || isAudioBookLibrary {
+		return s.ListAudioBookFiles(page, size, libraryID, keyword)
+	}
+
+	// 无媒体类型过滤且无媒体库过滤时，合并所有来源的文件
+	if mediaType == "" && libraryID == "" {
+		return s.listAllMerged(page, size, keyword, sortBy, sortOrder, scrapedOnly)
+	}
+
 	return s.mediaRepo.ListFilesAdvanced(page, size, libraryID, mediaType, keyword, sortBy, sortOrder, scrapedOnly)
+}
+
+func (s *FileManagerService) listAllMerged(page, size int, keyword, sortBy, sortOrder string, scrapedOnly *bool) ([]model.Media, int64, error) {
+	var allFiles []model.Media
+	var total int64
+
+	videoFiles, videoTotal, _ := s.mediaRepo.ListFilesAdvanced(1, 1000, "", "", keyword, sortBy, sortOrder, scrapedOnly)
+	allFiles = append(allFiles, videoFiles...)
+	total += videoTotal
+
+	if s.musicService != nil {
+		musicFiles, musicTotal, _ := s.ListMusicFiles(1, 1000, "", keyword, sortBy, sortOrder)
+		allFiles = append(allFiles, musicFiles...)
+		total += musicTotal
+	}
+
+	if s.audioBookService != nil {
+		abFiles, abTotal, _ := s.ListAudioBookFiles(1, 1000, "", keyword)
+		allFiles = append(allFiles, abFiles...)
+		total += abTotal
+	}
+
+	sortFiles(allFiles, sortBy, sortOrder)
+
+	start := (page - 1) * size
+	if start >= len(allFiles) {
+		return []model.Media{}, total, nil
+	}
+	end := start + size
+	if end > len(allFiles) {
+		end = len(allFiles)
+	}
+
+	return allFiles[start:end], total, nil
+}
+
+func sortFiles(files []model.Media, sortBy, sortOrder string) {
+	desc := strings.EqualFold(sortOrder, "desc")
+	sort.Slice(files, func(i, j int) bool {
+		var less bool
+		switch sortBy {
+		case "title":
+			less = strings.ToLower(files[i].Title) < strings.ToLower(files[j].Title)
+		case "file_size":
+			less = files[i].FileSize < files[j].FileSize
+		case "duration":
+			less = files[i].Duration < files[j].Duration
+		default:
+			less = files[i].CreatedAt.Before(files[j].CreatedAt)
+		}
+		if desc {
+			return !less
+		}
+		return less
+	})
+}
+
+// ListMusicFiles 获取音乐文件列表
+func (s *FileManagerService) ListMusicFiles(page, size int, libraryID, keyword, sortBy, sortOrder string) ([]model.Media, int64, error) {
+	if s.musicService == nil {
+		return nil, 0, fmt.Errorf("音乐服务未初始化")
+	}
+
+	// 根据 sortBy 构建排序参数
+	var sort string
+	switch sortBy {
+	case "title":
+		sort = "title"
+	case "created_at":
+		sort = "recent"
+	default:
+		sort = "artist"
+	}
+
+	tracks, total, err := s.musicService.ListTracksWithKeyword(libraryID, page, size, keyword, sort)
+	if err != nil {
+		return nil, 0, err
+	}
+	// 转换为 Media 格式
+	var mediaList []model.Media
+	for _, track := range tracks {
+		mediaList = append(mediaList, model.Media{
+			ID:               track.ID,
+			LibraryID:        track.LibraryID,
+			Title:            track.Title,
+			MediaType:        "music",
+			FilePath:         track.FilePath,
+			FileSize:         track.FileSize,
+			Artist:           track.Artist,
+			ArtistGroup:      track.ArtistGroup,
+			Band:             track.Band,
+			AlbumArtist:      track.AlbumArtist,
+			Album:            track.Album,
+			Genre:            track.Genre,
+			Year:             track.Year,
+			TrackNum:         track.TrackNum,
+			DiscNum:          track.DiscNum,
+			MusicLanguage:    track.MusicLanguage,
+			Composer:         track.Composer,
+			Lyricist:         track.Lyricist,
+			Arranger:         track.Arranger,
+			OriginalSinger:   track.OriginalSinger,
+			Key:              track.Key,
+			RecordLabel:      track.RecordLabel,
+			AlbumReleaseDate: track.AlbumReleaseDate,
+			AlbumType:        track.AlbumType,
+			ISRC:             track.ISRC,
+			IsOST:            track.IsOST,
+			PlayCount:        track.PlayCount,
+			LastPlayTime:     track.LastPlayTime,
+			Loved:            track.Loved,
+			Alias:            track.Alias,
+			FileName:         track.FileName,
+			FolderLevel:      track.FolderLevel,
+			Notes:            track.Notes,
+			LyricsPath:       track.LyricsPath,
+			LyricsText:       track.LyricsText,
+			Duration:         track.Duration,
+			Tags:             track.Tags,
+		})
+	}
+	return mediaList, total, nil
+}
+
+// ListAudioBookFiles 获取有声书文件列表（转换为 Media 格式，章节展开）
+func (s *FileManagerService) ListAudioBookFiles(page, size int, libraryID, keyword string) ([]model.Media, int64, error) {
+	if s.audioBookService == nil {
+		return nil, 0, fmt.Errorf("有声书服务未初始化")
+	}
+
+	if keyword != "" {
+		books, _, err := s.audioBookService.SearchBooks(keyword, 1, 5000)
+		if err != nil {
+			return nil, 0, err
+		}
+		return s.expandAudioBookChapters(books, page, size)
+	}
+
+	books, _, err := s.audioBookService.ListBooks(libraryID, 1, 5000)
+	if err != nil {
+		return nil, 0, err
+	}
+	return s.expandAudioBookChapters(books, page, size)
+}
+
+func (s *FileManagerService) expandAudioBookChapters(books []model.AudioBook, page, size int) ([]model.Media, int64, error) {
+	var allChapters []model.Media
+	for _, ab := range books {
+		if !ab.IsSingleFile && ab.ChapterList != "" {
+			var chapters []AudioBookChapter
+			if json.Unmarshal([]byte(ab.ChapterList), &chapters) == nil {
+				for _, ch := range chapters {
+					allChapters = append(allChapters, model.Media{
+						ID:           ab.ID + "_ch_" + strconv.Itoa(ch.Index),
+						LibraryID:    ab.LibraryID,
+						Title:        ch.Title,
+						FilePath:     ch.File,
+						Duration:     ch.Duration,
+						Year:         ab.Year,
+						Artist:       ab.Author,
+						Genres:       ab.Genres,
+						Rating:       ab.Rating,
+						MediaType:    "audiobook",
+						ScrapeStatus: ab.ScrapeStatus,
+						FolderPath:   ab.FolderPath,
+					})
+				}
+				continue
+			}
+		}
+		allChapters = append(allChapters, model.Media{
+			ID:           ab.ID,
+			LibraryID:    ab.LibraryID,
+			Title:        ab.Title,
+			OrigTitle:    ab.OrigTitle,
+			Overview:     ab.Description,
+			PosterPath:   ab.CoverPath,
+			Artist:       ab.Author,
+			Year:         ab.Year,
+			Duration:     ab.Duration,
+			FileSize:     ab.FileSize,
+			FilePath:     ab.FilePath,
+			FolderPath:   ab.FolderPath,
+			Genres:       ab.Genres,
+			Rating:       ab.Rating,
+			MediaType:    "audiobook",
+			ScrapeStatus: ab.ScrapeStatus,
+		})
+	}
+
+	total := int64(len(allChapters))
+	start := (page - 1) * size
+	if start < 0 {
+		start = 0
+	}
+	if start >= len(allChapters) {
+		return []model.Media{}, total, nil
+	}
+	end := start + size
+	if end > len(allChapters) {
+		end = len(allChapters)
+	}
+	return allChapters[start:end], total, nil
+}
+
+// DeleteMusicTrack 删除音乐曲目
+func (s *FileManagerService) DeleteMusicTrack(trackID, libraryID string) error {
+	if s.musicService == nil {
+		return fmt.Errorf("音乐服务未初始化")
+	}
+	return s.musicService.DeleteTrack(trackID, libraryID)
 }
 
 // FolderNode 文件夹树节点
@@ -143,8 +390,15 @@ type FolderNode struct {
 	FileCount int           `json:"file_count"` // 直接子文件数量
 }
 
-// GetFolderTree 获取文件夹树形结构
+// GetFolderTree 获取文件夹树形结构（包含影视和音乐文件）
 func (s *FileManagerService) GetFolderTree(libraryID string) ([]*FolderNode, error) {
+	// 首先获取所有媒体库列表
+	libraries, err := s.libraryRepo.List()
+	if err != nil {
+		return nil, fmt.Errorf("获取媒体库列表失败: %w", err)
+	}
+
+	// 获取所有影视文件路径（不限制媒体库，以便显示完整的文件结构）
 	paths, err := s.mediaRepo.GetAllFilePaths(libraryID)
 	if err != nil {
 		return nil, fmt.Errorf("获取文件路径失败: %w", err)
@@ -173,69 +427,437 @@ func (s *FileManagerService) GetFolderTree(libraryID string) ([]*FolderNode, err
 		}
 	}
 
-	// 构建树
-	root := make(map[string]*FolderNode)
-	var rootNodes []*FolderNode
+	// 添加所有音乐文件路径（不限制媒体库，以便显示完整的音乐库结构）
+	if s.musicService != nil {
+		musicPaths, err := s.musicService.GetAllTrackFilePaths(libraryID)
+		if err != nil {
+			s.logger.Warnf("获取音乐文件路径失败: %v", err)
+		} else {
+			s.logger.Infof("获取到 %d 个音乐文件路径", len(musicPaths))
+			for _, p := range musicPaths {
+				normalized := strings.ReplaceAll(p, "\\", "/")
+				dir := filepath.Dir(normalized)
+				dir = strings.ReplaceAll(dir, "\\", "/")
+				dirFileCount[dir]++
+				dirSet[dir] = true
 
-	// 收集所有目录并排序
-	var allDirs []string
-	for d := range dirSet {
-		allDirs = append(allDirs, d)
+				// 记录所有祖先目录
+				parts := strings.Split(dir, "/")
+				for i := 1; i <= len(parts); i++ {
+					ancestor := strings.Join(parts[:i], "/")
+					if ancestor == "" {
+						continue
+					}
+					dirSet[ancestor] = true
+				}
+			}
+		}
+	} else {
+		s.logger.Warnf("音乐服务未初始化")
 	}
-	// 按路径长度排序，确保父目录先处理
-	for i := 0; i < len(allDirs); i++ {
-		for j := i + 1; j < len(allDirs); j++ {
-			if len(allDirs[i]) > len(allDirs[j]) {
-				allDirs[i], allDirs[j] = allDirs[j], allDirs[i]
+
+	if s.audioBookService != nil {
+		abCounts, err := s.audioBookService.GetAllBookFolderPathCounts(libraryID)
+		if err != nil {
+			s.logger.Warnf("获取有声书路径数量失败: %v", err)
+		} else {
+			for p, count := range abCounts {
+				normalized := strings.ReplaceAll(p, "\\", "/")
+				dirFileCount[normalized] += count
+				dirSet[normalized] = true
+
+				parts := strings.Split(normalized, "/")
+				for i := 1; i <= len(parts); i++ {
+					ancestor := strings.Join(parts[:i], "/")
+					if ancestor == "" {
+						continue
+					}
+					dirSet[ancestor] = true
+				}
 			}
 		}
 	}
 
-	for _, dir := range allDirs {
-		name := filepath.Base(dir)
-		name = strings.ReplaceAll(name, "\\", "/")
-		if name == "." || name == "" {
+	// 构建树 - 首先按媒体库分组
+	rootNodes := make([]*FolderNode, 0)
+
+	for _, lib := range libraries {
+		// 如果指定了 libraryID，只处理该媒体库
+		if libraryID != "" && lib.ID != libraryID {
 			continue
 		}
 
-		node := &FolderNode{
-			Name:      name,
-			Path:      dir,
-			Children:  make([]*FolderNode, 0),
-			FileCount: dirFileCount[dir],
+		// 从媒体库的路径开始构建
+		libPaths := []string{strings.ReplaceAll(lib.Path, "\\", "/")}
+		if lib.ExtraPaths != "" {
+			// 解析 extra paths（假设是 JSON 数组）
+			var extraPaths []string
+			if err := json.Unmarshal([]byte(lib.ExtraPaths), &extraPaths); err == nil {
+				for _, p := range extraPaths {
+					libPaths = append(libPaths, strings.ReplaceAll(p, "\\", "/"))
+				}
+			}
 		}
-		root[dir] = node
 
-		// 查找父目录
-		parentDir := filepath.Dir(dir)
-		parentDir = strings.ReplaceAll(parentDir, "\\", "/")
-		if parentNode, ok := root[parentDir]; ok {
-			parentNode.Children = append(parentNode.Children, node)
-		} else {
-			rootNodes = append(rootNodes, node)
+		// 检查该媒体库是否有任何文件（大小写不敏感）
+		hasFiles := false
+		libDirs := make(map[string]bool)
+		lowerLibPaths := make([]string, len(libPaths))
+		for i, lp := range libPaths {
+			lowerLibPaths[i] = strings.ToLower(lp)
 		}
+		for _, lowerLibPath := range lowerLibPaths {
+			for dir := range dirSet {
+				lowerDir := strings.ToLower(dir)
+				if strings.HasPrefix(lowerDir, lowerLibPath) || strings.HasPrefix(lowerLibPath, lowerDir) {
+					hasFiles = true
+					libDirs[dir] = true
+				}
+			}
+		}
+
+		if !hasFiles {
+			continue
+		}
+
+		// 创建媒体库根节点
+		libNode := &FolderNode{
+			Name:      lib.Name,
+			Path:      strings.ReplaceAll(lib.Path, "\\", "/"), // 使用主路径
+			Children:  make([]*FolderNode, 0),
+			FileCount: 0,
+		}
+
+		// 构建该媒体库下的目录树
+		nodeMap := make(map[string]*FolderNode)
+		nodeMap[libNode.Path] = libNode
+
+		// 收集所有属于该媒体库的目录
+		var libDirList []string
+		for dir := range libDirs {
+			libDirList = append(libDirList, dir)
+		}
+		// 按路径长度排序，确保父目录先处理
+		for i := 0; i < len(libDirList); i++ {
+			for j := i + 1; j < len(libDirList); j++ {
+				if len(libDirList[i]) > len(libDirList[j]) {
+					libDirList[i], libDirList[j] = libDirList[j], libDirList[i]
+				}
+			}
+		}
+
+		for _, dir := range libDirList {
+			// 检查是否已经处理（可能属于其他 extra path）
+			if _, ok := nodeMap[dir]; ok {
+				continue
+			}
+
+			name := filepath.Base(dir)
+			name = strings.ReplaceAll(name, "\\", "/")
+			if name == "." || name == "" {
+				continue
+			}
+
+			node := &FolderNode{
+				Name:      name,
+				Path:      dir,
+				Children:  make([]*FolderNode, 0),
+				FileCount: dirFileCount[dir],
+			}
+			nodeMap[dir] = node
+
+			// 查找父目录 - 优先在该媒体库的路径下找
+			parentDir := filepath.Dir(dir)
+			parentDir = strings.ReplaceAll(parentDir, "\\", "/")
+			lowerDir := strings.ToLower(dir)
+			for _, lp := range libPaths {
+				if strings.HasPrefix(lowerDir, strings.ToLower(lp)) {
+					if parentNode, ok := nodeMap[parentDir]; ok {
+						parentNode.Children = append(parentNode.Children, node)
+					} else {
+						// 如果没有直接找到父目录，尝试找到最近的媒体库根路径作为父
+						for _, lpCheck := range libPaths {
+							if strings.HasPrefix(lowerDir, strings.ToLower(lpCheck)) && !strings.EqualFold(lpCheck, dir) {
+								if strings.EqualFold(libNode.Path, lpCheck) {
+									libNode.Children = append(libNode.Children, node)
+								}
+							}
+						}
+					}
+					break
+				}
+			}
+		}
+
+		// 计算媒体库根节点的文件数（所有子目录的文件数之和）
+		totalFiles := 0
+		var countFiles func(n *FolderNode)
+		countFiles = func(n *FolderNode) {
+			totalFiles += n.FileCount
+			for _, c := range n.Children {
+				countFiles(c)
+			}
+		}
+		countFiles(libNode)
+		libNode.FileCount = totalFiles
+
+		// 排序媒体库下的子节点
+		sortFolderNodes(libNode.Children)
+		sortFolderChildren(libNode.Children)
+
+		rootNodes = append(rootNodes, libNode)
 	}
 
-	// 按名称排序根节点
+	// 按名称排序媒体库根节点
 	sortFolderNodes(rootNodes)
-	// 递归排序每个节点的子节点
-	sortFolderChildren(rootNodes)
 
 	return rootNodes, nil
 }
 
 // ListFilesByFolder 按文件夹路径查询文件
 func (s *FileManagerService) ListFilesByFolder(folderPath string, page, size int, libraryID, mediaType, keyword, sortBy, sortOrder string, scrapedOnly *bool) ([]model.Media, int64, []string, error) {
-	// 获取文件列表
-	files, total, err := s.mediaRepo.ListByFolderPath(folderPath, page, size, libraryID, mediaType, keyword, sortBy, sortOrder, scrapedOnly)
-	if err != nil {
-		return nil, 0, nil, err
+	var files []model.Media
+	var total int64
+	var err error
+
+	// 判断是否为音乐库
+	isMusicLibrary := false
+	isAudioBookLibrary := false
+
+	// 首先根据 libraryID 判断
+	if libraryID != "" && s.libraryRepo != nil {
+		lib, libErr := s.libraryRepo.FindByID(libraryID)
+		if libErr == nil {
+			if strings.EqualFold(lib.Type, "music") {
+				isMusicLibrary = true
+			} else if strings.EqualFold(lib.Type, "audiobook") {
+				isAudioBookLibrary = true
+			}
+		}
+	}
+
+	// 如果还没有判断为音乐库，且 folderPath 不为空，尝试根据 folderPath 判断
+	if !isMusicLibrary && !isAudioBookLibrary && folderPath != "" && s.libraryRepo != nil {
+		libraries, libErr := s.libraryRepo.List()
+		if libErr == nil {
+			lowerFolder := strings.ToLower(strings.ReplaceAll(folderPath, "\\", "/"))
+			for _, lib := range libraries {
+				if strings.EqualFold(lib.Type, "music") || strings.EqualFold(lib.Type, "audiobook") {
+					libPaths := []string{strings.ToLower(strings.ReplaceAll(lib.Path, "\\", "/"))}
+					if lib.ExtraPaths != "" {
+						var extraPaths []string
+						if json.Unmarshal([]byte(lib.ExtraPaths), &extraPaths) == nil {
+							for _, p := range extraPaths {
+								libPaths = append(libPaths, strings.ToLower(strings.ReplaceAll(p, "\\", "/")))
+							}
+						}
+					}
+					for _, lp := range libPaths {
+						if strings.HasPrefix(lowerFolder, lp) || strings.HasPrefix(lp, lowerFolder) {
+							if strings.EqualFold(lib.Type, "music") {
+								isMusicLibrary = true
+							} else {
+								isAudioBookLibrary = true
+							}
+							libraryID = lib.ID
+							break
+						}
+					}
+					if isMusicLibrary || isAudioBookLibrary {
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// 如果是音乐类型或音乐库，调用音乐服务
+	if mediaType == "music" || isMusicLibrary {
+		if s.musicService == nil {
+			return nil, 0, nil, fmt.Errorf("音乐服务未初始化")
+		}
+
+		// 根据 sortBy 构建排序参数
+		var sort string
+		switch sortBy {
+		case "title":
+			sort = "title"
+		case "created_at":
+			sort = "recent"
+		default:
+			sort = "artist"
+		}
+
+		tracks, trackTotal, err := s.musicService.ListTracksByFolder(folderPath, page, size, libraryID, keyword, sort)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		total = trackTotal
+
+		// 转换为 Media 格式（与 ListMusicFiles 保持一致，包含所有元数据字段）
+		for _, track := range tracks {
+			files = append(files, model.Media{
+				ID:               track.ID,
+				LibraryID:        track.LibraryID,
+				Title:            track.Title,
+				OrigTitle:        track.OrigTitle,
+				Alias:            track.Alias,
+				FileName:         track.FileName,
+				MediaType:        "music",
+				FilePath:         track.FilePath,
+				FileSize:         track.FileSize,
+				Artist:           track.Artist,
+				ArtistGroup:      track.ArtistGroup,
+				Band:             track.Band,
+				AlbumArtist:      track.AlbumArtist,
+				Album:            track.Album,
+				Genre:            track.Genre,
+				Year:             track.Year,
+				TrackNum:         track.TrackNum,
+				DiscNum:          track.DiscNum,
+				MusicLanguage:    track.MusicLanguage,
+				Composer:         track.Composer,
+				Lyricist:         track.Lyricist,
+				Arranger:         track.Arranger,
+				OriginalSinger:   track.OriginalSinger,
+				RecordLabel:      track.RecordLabel,
+				AlbumReleaseDate: track.AlbumReleaseDate,
+				AlbumType:        track.AlbumType,
+				Key:              track.Key,
+				ISRC:             track.ISRC,
+				IsOST:            track.IsOST,
+				Rating:           track.Rating,
+				PlayCount:        track.PlayCount,
+				LastPlayTime:     track.LastPlayTime,
+				Loved:            track.Loved,
+				FolderLevel:      track.FolderLevel,
+				Notes:            track.Notes,
+				Tags:             track.Tags,
+				LyricsPath:       track.LyricsPath,
+				LyricsText:       track.LyricsText,
+				Duration:         track.Duration,
+			})
+		}
+	} else if mediaType == "audiobook" || isAudioBookLibrary {
+		if s.audioBookService == nil {
+			return nil, 0, nil, fmt.Errorf("有声书服务未初始化")
+		}
+		allBooks, _, err := s.audioBookService.ListBooksByFolder(folderPath, 1, 5000, libraryID, keyword)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+
+		type chapterEntry struct {
+			id           string
+			title        string
+			filePath     string
+			duration     float64
+			year         int
+			author       string
+			genres       string
+			rating       float64
+			libraryID    string
+			folderPath   string
+			scrapeStatus string
+		}
+
+		var allChapters []chapterEntry
+		for _, ab := range allBooks {
+			if !ab.IsSingleFile && ab.ChapterList != "" {
+				var chapters []AudioBookChapter
+				if json.Unmarshal([]byte(ab.ChapterList), &chapters) == nil {
+					for _, ch := range chapters {
+						allChapters = append(allChapters, chapterEntry{
+							id:           ab.ID + "_ch_" + strconv.Itoa(ch.Index),
+							title:        ch.Title,
+							filePath:     ch.File,
+							duration:     ch.Duration,
+							year:         ab.Year,
+							author:       ab.Author,
+							genres:       ab.Genres,
+							rating:       ab.Rating,
+							libraryID:    ab.LibraryID,
+							folderPath:   ab.FolderPath,
+							scrapeStatus: ab.ScrapeStatus,
+						})
+					}
+					continue
+				}
+			}
+			allChapters = append(allChapters, chapterEntry{
+				id:           ab.ID,
+				title:        ab.Title,
+				filePath:     ab.FilePath,
+				duration:     ab.Duration,
+				year:         ab.Year,
+				author:       ab.Author,
+				genres:       ab.Genres,
+				rating:       ab.Rating,
+				libraryID:    ab.LibraryID,
+				folderPath:   ab.FolderPath,
+				scrapeStatus: ab.ScrapeStatus,
+			})
+		}
+
+		total = int64(len(allChapters))
+		start := (page - 1) * size
+		if start < 0 {
+			start = 0
+		}
+		if start >= len(allChapters) {
+			return files, total, nil, nil
+		}
+		end := start + size
+		if end > len(allChapters) {
+			end = len(allChapters)
+		}
+		for _, ce := range allChapters[start:end] {
+			files = append(files, model.Media{
+				ID:           ce.id,
+				LibraryID:    ce.libraryID,
+				Title:        ce.title,
+				FilePath:     ce.filePath,
+				Duration:     ce.duration,
+				Year:         ce.year,
+				Artist:       ce.author,
+				Genres:       ce.genres,
+				Rating:       ce.rating,
+				MediaType:    "audiobook",
+				ScrapeStatus: ce.scrapeStatus,
+				FolderPath:   ce.folderPath,
+			})
+		}
+	} else {
+		// 获取影视文件列表
+		files, total, err = s.mediaRepo.ListByFolderPath(folderPath, page, size, libraryID, mediaType, keyword, sortBy, sortOrder, scrapedOnly)
+		if err != nil {
+			return nil, 0, nil, err
+		}
 	}
 
 	// 获取当前文件夹下的子文件夹列表
-	allPaths, err := s.mediaRepo.GetAllFilePaths(libraryID)
-	if err != nil {
-		return files, total, nil, nil
+	allPaths := make([]string, 0)
+
+	// 添加影视文件路径
+	videoPaths, err := s.mediaRepo.GetAllFilePaths(libraryID)
+	if err == nil {
+		allPaths = append(allPaths, videoPaths...)
+	}
+
+	// 添加音乐文件路径
+	if s.musicService != nil {
+		musicPaths, err := s.musicService.GetAllTrackFilePaths(libraryID)
+		if err == nil {
+			allPaths = append(allPaths, musicPaths...)
+		}
+	}
+
+	// 添加有声书文件夹路径
+	if s.audioBookService != nil {
+		abPaths, err := s.audioBookService.GetAllBookFolderPaths(libraryID)
+		if err == nil {
+			allPaths = append(allPaths, abPaths...)
+		}
 	}
 
 	normalizedFolder := strings.ReplaceAll(folderPath, "\\", "/")
@@ -391,6 +1013,53 @@ func (s *FileManagerService) DeleteFolder(folderPath string, force bool, userID 
 
 // GetFileDetail 获取文件详情
 func (s *FileManagerService) GetFileDetail(id string) (*model.Media, error) {
+	// 首先尝试从音乐服务获取
+	if s.musicService != nil {
+		var track MusicTrack
+		if err := s.musicService.GetTrack(id, &track); err == nil {
+			// 找到音乐文件，转换为 Media 格式
+			return &model.Media{
+				ID:               track.ID,
+				LibraryID:        track.LibraryID,
+				Title:            track.Title,
+				MediaType:        "music",
+				FilePath:         track.FilePath,
+				FileSize:         track.FileSize,
+				Artist:           track.Artist,
+				ArtistGroup:      track.ArtistGroup,
+				Band:             track.Band,
+				AlbumArtist:      track.AlbumArtist,
+				Album:            track.Album,
+				Genre:            track.Genre,
+				Year:             track.Year,
+				TrackNum:         track.TrackNum,
+				DiscNum:          track.DiscNum,
+				MusicLanguage:    track.MusicLanguage,
+				Composer:         track.Composer,
+				Lyricist:         track.Lyricist,
+				Arranger:         track.Arranger,
+				OriginalSinger:   track.OriginalSinger,
+				Key:              track.Key,
+				RecordLabel:      track.RecordLabel,
+				AlbumReleaseDate: track.AlbumReleaseDate,
+				AlbumType:        track.AlbumType,
+				ISRC:             track.ISRC,
+				IsOST:            track.IsOST,
+				PlayCount:        track.PlayCount,
+				LastPlayTime:     track.LastPlayTime,
+				Loved:            track.Loved,
+				Alias:            track.Alias,
+				FileName:         track.FileName,
+				FolderLevel:      track.FolderLevel,
+				Notes:            track.Notes,
+				LyricsPath:       track.LyricsPath,
+				LyricsText:       track.LyricsText,
+				Duration:         track.Duration,
+				Tags:             track.Tags,
+			}, nil
+		}
+	}
+	// 如果不是音乐文件，从媒体库获取
 	media, err := s.mediaRepo.FindByID(id)
 	if err != nil {
 		return nil, fmt.Errorf("文件不存在")
@@ -571,6 +1240,192 @@ func (s *FileManagerService) ScanDirectoryFiles(dirPath string) ([]map[string]in
 
 // UpdateFileInfo 更新文件信息
 func (s *FileManagerService) UpdateFileInfo(mediaID string, updates map[string]interface{}, userID string) (*model.Media, error) {
+	// 首先尝试检查是否是音乐文件
+	if s.musicService != nil {
+		var track MusicTrack
+		if err := s.musicService.GetTrack(mediaID, &track); err == nil {
+			// 是音乐文件，更新音乐元数据
+			oldJSON, _ := json.Marshal(track)
+
+			// 一、核心基础
+			if v, ok := updates["title"].(string); ok && v != "" {
+				track.Title = v
+			}
+			if v, ok := updates["orig_title"].(string); ok {
+				track.OrigTitle = v
+			}
+			if v, ok := updates["alias"].(string); ok {
+				track.Alias = v
+			}
+			if v, ok := updates["file_name"].(string); ok {
+				track.FileName = v
+			}
+			if v, ok := updates["artist"].(string); ok {
+				track.Artist = v
+				track.AlbumID = "" // 艺术家变更，需要重新关联专辑
+			}
+			if v, ok := updates["artist_group"].(string); ok {
+				track.ArtistGroup = v
+			}
+			if v, ok := updates["band"].(string); ok {
+				track.Band = v
+			}
+			if v, ok := updates["album_artist"].(string); ok {
+				track.AlbumArtist = v
+			}
+			if v, ok := updates["album"].(string); ok {
+				track.Album = v
+				track.AlbumID = "" // 专辑名变更，需要重新关联专辑
+			}
+			if v, ok := updates["folder_level"]; ok {
+				if fl, ok := v.(float64); ok {
+					track.FolderLevel = int(fl)
+				}
+			}
+			// 二、创作制作
+			if v, ok := updates["lyricist"].(string); ok {
+				track.Lyricist = v
+			}
+			if v, ok := updates["composer"].(string); ok {
+				track.Composer = v
+			}
+			if v, ok := updates["arranger"].(string); ok {
+				track.Arranger = v
+			}
+			if v, ok := updates["original_singer"].(string); ok {
+				track.OriginalSinger = v
+			}
+			// 三、音频属性（只读，由扫描自动填充）
+			// 四、专辑发行
+			if v, ok := updates["year"]; ok {
+				if year, ok := v.(float64); ok {
+					track.Year = int(year)
+				}
+			}
+			if v, ok := updates["album_release_date"].(string); ok {
+				track.AlbumReleaseDate = v
+			}
+			if v, ok := updates["record_label"].(string); ok {
+				track.RecordLabel = v
+			}
+			if v, ok := updates["album_type"].(string); ok {
+				track.AlbumType = v
+			}
+			// 五、分类检索标签
+			if v, ok := updates["music_language"].(string); ok {
+				track.MusicLanguage = v
+			}
+			if v, ok := updates["genre"].(string); ok {
+				track.Genre = v
+			}
+			if v, ok := updates["tags"].(string); ok {
+				track.Tags = v
+			}
+			if v, ok := updates["key"].(string); ok {
+				track.Key = v
+			}
+			// 六、播放自用字段
+			if v, ok := updates["play_count"]; ok {
+				if pc, ok := v.(float64); ok {
+					track.PlayCount = int(pc)
+				}
+			}
+			if v, ok := updates["loved"]; ok {
+				if loved, ok := v.(bool); ok {
+					track.Loved = loved
+				}
+			}
+			if v, ok := updates["rating"]; ok {
+				if rating, ok := v.(float64); ok {
+					track.Rating = rating
+				}
+			}
+			// 七、拓展实用
+			if v, ok := updates["isrc"].(string); ok {
+				track.ISRC = v
+			}
+			if v, ok := updates["is_ost"]; ok {
+				if isOST, ok := v.(bool); ok {
+					track.IsOST = isOST
+				}
+			}
+			if v, ok := updates["notes"].(string); ok {
+				track.Notes = v
+			}
+			// 八、排序索引字段
+			if v, ok := updates["track_num"]; ok {
+				if trackNum, ok := v.(float64); ok {
+					track.TrackNum = int(trackNum)
+				}
+			}
+			if v, ok := updates["disc_num"]; ok {
+				if discNum, ok := v.(float64); ok {
+					track.DiscNum = int(discNum)
+				}
+			}
+
+			// 保存更新
+			if err := s.musicService.db.Save(&track).Error; err != nil {
+				return nil, fmt.Errorf("更新音乐元数据失败: %w", err)
+			}
+
+			// 记录操作日志
+			newJSON, _ := json.Marshal(track)
+			s.addOpLog("edit", mediaID, "编辑音乐文件信息", string(oldJSON), string(newJSON), userID)
+
+			// 广播事件，通知前端刷新
+			s.broadcastEvent(EventLibraryUpdated, &LibraryChangedData{
+				LibraryID:   track.LibraryID,
+				LibraryName: "",
+				Action:      "music_metadata_updated",
+				Message:     "音乐元数据已更新: " + track.Title,
+			})
+
+			// 转换为 Media 格式返回
+			return &model.Media{
+				ID:               track.ID,
+				LibraryID:        track.LibraryID,
+				Title:            track.Title,
+				OrigTitle:        track.OrigTitle,
+				Alias:            track.Alias,
+				FileName:         track.FileName,
+				MediaType:        "music",
+				FilePath:         track.FilePath,
+				FileSize:         track.FileSize,
+				Artist:           track.Artist,
+				ArtistGroup:      track.ArtistGroup,
+				Band:             track.Band,
+				AlbumArtist:      track.AlbumArtist,
+				Album:            track.Album,
+				Genre:            track.Genre,
+				Year:             track.Year,
+				TrackNum:         track.TrackNum,
+				DiscNum:          track.DiscNum,
+				MusicLanguage:    track.MusicLanguage,
+				Composer:         track.Composer,
+				Lyricist:         track.Lyricist,
+				Arranger:         track.Arranger,
+				OriginalSinger:   track.OriginalSinger,
+				RecordLabel:      track.RecordLabel,
+				AlbumReleaseDate: track.AlbumReleaseDate,
+				AlbumType:        track.AlbumType,
+				Key:              track.Key,
+				ISRC:             track.ISRC,
+				IsOST:            track.IsOST,
+				Rating:           track.Rating,
+				PlayCount:        track.PlayCount,
+				LastPlayTime:     track.LastPlayTime,
+				Loved:            track.Loved,
+				FolderLevel:      track.FolderLevel,
+				Notes:            track.Notes,
+				Tags:             track.Tags,
+				LyricsPath:       track.LyricsPath,
+				LyricsText:       track.LyricsText,
+			}, nil
+		}
+	}
+
+	// 如果不是音乐文件，处理影视文件
 	media, err := s.mediaRepo.FindByID(mediaID)
 	if err != nil {
 		return nil, fmt.Errorf("文件不存在")
@@ -618,6 +1473,104 @@ func (s *FileManagerService) UpdateFileInfo(mediaID string, updates map[string]i
 		media.Studio = v
 	}
 
+	// 音乐文件专项字段（Media 表 fallthrough 时也需处理）
+	if v, ok := updates["artist"].(string); ok {
+		media.Artist = v
+	}
+	if v, ok := updates["artist_group"].(string); ok {
+		media.ArtistGroup = v
+	}
+	if v, ok := updates["band"].(string); ok {
+		media.Band = v
+	}
+	if v, ok := updates["album_artist"].(string); ok {
+		media.AlbumArtist = v
+	}
+	if v, ok := updates["album"].(string); ok {
+		media.Album = v
+	}
+	if v, ok := updates["genre"].(string); ok {
+		media.Genre = v
+	}
+	if v, ok := updates["track_num"]; ok {
+		if trackNum, ok := v.(float64); ok {
+			media.TrackNum = int(trackNum)
+		}
+	}
+	if v, ok := updates["disc_num"]; ok {
+		if discNum, ok := v.(float64); ok {
+			media.DiscNum = int(discNum)
+		}
+	}
+	if v, ok := updates["music_language"].(string); ok {
+		media.MusicLanguage = v
+	}
+	if v, ok := updates["composer"].(string); ok {
+		media.Composer = v
+	}
+	if v, ok := updates["lyricist"].(string); ok {
+		media.Lyricist = v
+	}
+	if v, ok := updates["arranger"].(string); ok {
+		media.Arranger = v
+	}
+	if v, ok := updates["original_singer"].(string); ok {
+		media.OriginalSinger = v
+	}
+	if v, ok := updates["record_label"].(string); ok {
+		media.RecordLabel = v
+	}
+	if v, ok := updates["album_release_date"].(string); ok {
+		media.AlbumReleaseDate = v
+	}
+	if v, ok := updates["album_type"].(string); ok {
+		media.AlbumType = v
+	}
+	if v, ok := updates["key"].(string); ok {
+		media.Key = v
+	}
+	if v, ok := updates["isrc"].(string); ok {
+		media.ISRC = v
+	}
+	if v, ok := updates["is_ost"]; ok {
+		if isOST, ok := v.(bool); ok {
+			media.IsOST = isOST
+		}
+	}
+	if v, ok := updates["play_count"]; ok {
+		if pc, ok := v.(float64); ok {
+			media.PlayCount = int(pc)
+		}
+	}
+	if v, ok := updates["loved"]; ok {
+		if loved, ok := v.(bool); ok {
+			media.Loved = loved
+		}
+	}
+	if v, ok := updates["alias"].(string); ok {
+		media.Alias = v
+	}
+	if v, ok := updates["file_name"].(string); ok {
+		media.FileName = v
+	}
+	if v, ok := updates["folder_level"]; ok {
+		if fl, ok := v.(float64); ok {
+			media.FolderLevel = int(fl)
+		}
+	}
+	if v, ok := updates["notes"].(string); ok {
+		media.Notes = v
+	}
+	if v, ok := updates["tags"].(string); ok {
+		media.Tags = v
+	}
+	if v, ok := updates["lyrics_path"].(string); ok {
+		media.LyricsPath = v
+	}
+	if v, ok := updates["lyrics_text"].(string); ok {
+		media.LyricsText = v
+	}
+
 	if err := s.mediaRepo.Update(media); err != nil {
 		return nil, fmt.Errorf("更新失败: %w", err)
 	}
@@ -625,6 +1578,14 @@ func (s *FileManagerService) UpdateFileInfo(mediaID string, updates map[string]i
 	// 记录操作日志
 	newJSON, _ := json.Marshal(media)
 	s.addOpLog("edit", mediaID, "编辑文件信息", string(oldJSON), string(newJSON), userID)
+
+	// 广播事件，通知前端刷新
+	s.broadcastEvent(EventLibraryUpdated, &LibraryChangedData{
+		LibraryID:   media.LibraryID,
+		LibraryName: "",
+		Action:      "media_metadata_updated",
+		Message:     "元数据已更新: " + media.Title,
+	})
 
 	return media, nil
 }
@@ -787,6 +1748,11 @@ func (s *FileManagerService) executeScrapeFile(media *model.Media, source, userI
 		return
 	}
 
+	// 刮削成功后自动生成同名 .nfo 文件（Emby/Jellyfin/Kodi 兼容）
+	if s.metadata != nil {
+		s.metadata.writeNFOAfterScrape(media)
+	}
+
 	newJSON, _ := json.Marshal(media)
 	s.addOpLog("scrape", media.ID, fmt.Sprintf("刮削完成(%s): %s", media.ScrapeStatus, media.Title), string(oldJSON), string(newJSON), userID)
 
@@ -862,7 +1828,7 @@ func (s *FileManagerService) scrapeFromTMDb(media *model.Media, searchTitle stri
 
 // scrapeFromBangumi 从Bangumi刮削元数据
 func (s *FileManagerService) scrapeFromBangumi(media *model.Media, searchTitle string) error {
-	subjects, err := s.metadata.SearchBangumi(searchTitle, 2, 0)
+	subjects, err := s.metadata.bangumi.SearchSubjects(searchTitle, 2, 0)
 	if err != nil {
 		return fmt.Errorf("Bangumi搜索失败: %w", err)
 	}
@@ -1073,7 +2039,7 @@ func (s *FileManagerService) GetRenameTemplates() []RenameTemplate {
 func (s *FileManagerService) GetStats(libraryID, folderPath string) (*FileManagerStats, error) {
 	stats := &FileManagerStats{}
 
-	// 总文件数
+	// 总文件数（影视）
 	total, err := s.mediaRepo.CountByScope(libraryID, folderPath)
 	if err != nil {
 		return nil, err
@@ -1088,6 +2054,14 @@ func (s *FileManagerService) GetStats(libraryID, folderPath string) (*FileManage
 	// 剧集数量
 	if c, err := s.mediaRepo.CountByScopeAndType(libraryID, folderPath, "episode"); err == nil {
 		stats.EpisodeCount = c
+	}
+
+	// 音乐数量
+	if s.musicService != nil {
+		if c, err := s.musicService.CountTracks(libraryID); err == nil {
+			stats.MusicCount = c
+			stats.TotalFiles += c // 总文件数包含音乐
+		}
 	}
 
 	// 按 scrape_status 分别计数（作用域化）
@@ -1473,7 +2447,7 @@ func (s *FileManagerService) AnalyzeMisclassification() (*MisclassificationRepor
 }
 
 // analyzeMediaClassification 分析单个文件的分类是否正确
-func (s *FileManagerService) analyzeMediaClassification(media *model.Media, dirFileCount map[string]int, dirFiles map[string][]string) *MisclassifiedItem {
+func (s *FileManagerService) analyzeMediaClassification(media *model.Media, dirFileCount map[string]int, _ map[string][]string) *MisclassifiedItem {
 	var reasons []string
 	var confidence float64
 
@@ -1722,21 +2696,24 @@ func (s *FileManagerService) extractSeasonEpisodeNum(media *model.Media) {
 		regexp.MustCompile(`(?i)Season\s*(\d{1,2})`),
 		regexp.MustCompile(`第(\d+)季`),
 	}
+	seasonExtracted := false
 	for _, p := range seasonPatterns {
 		// 先从目录名提取
 		if matches := p.FindStringSubmatch(dirName); len(matches) > 1 {
 			fmt.Sscanf(matches[1], "%d", &media.SeasonNum)
+			seasonExtracted = true
 			break
 		}
 		// 再从文件名提取
 		if matches := p.FindStringSubmatch(fileName); len(matches) > 1 {
 			fmt.Sscanf(matches[1], "%d", &media.SeasonNum)
+			seasonExtracted = true
 			break
 		}
 	}
 
-	// 默认季号为1
-	if media.SeasonNum == 0 {
+	// 默认季号为1（仅当未从文件名提取到季号时，保留S00特别篇）
+	if !seasonExtracted && media.SeasonNum == 0 {
 		media.SeasonNum = 1
 	}
 

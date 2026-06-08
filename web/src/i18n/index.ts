@@ -2,22 +2,17 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import zhCN from './locales/zh-CN'
 import enUS from './locales/en-US'
-import jaJP from './locales/ja-JP'
 
-// 支持的语言列表
 export const SUPPORTED_LOCALES = [
   { code: 'zh-CN', name: '简体中文', flag: '🇨🇳' },
   { code: 'en-US', name: 'English', flag: '🇺🇸' },
-  { code: 'ja-JP', name: '日本語', flag: '🇯🇵' },
 ] as const
 
 export type LocaleCode = typeof SUPPORTED_LOCALES[number]['code']
 
-// 语言包映射
 const localeMessages: Record<LocaleCode, Record<string, string>> = {
   'zh-CN': zhCN,
   'en-US': enUS,
-  'ja-JP': jaJP,
 }
 
 // i18n Store
@@ -30,9 +25,8 @@ interface I18nStore {
 function detectBrowserLocale(): LocaleCode {
   const browserLang = navigator.language || (navigator as any).userLanguage || ''
   if (browserLang.startsWith('zh')) return 'zh-CN'
-  if (browserLang.startsWith('ja')) return 'ja-JP'
   if (browserLang.startsWith('en')) return 'en-US'
-  return 'zh-CN' // 默认中文
+  return 'zh-CN'
 }
 
 export const useI18nStore = create<I18nStore>()(

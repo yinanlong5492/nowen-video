@@ -159,5 +159,26 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    function({ addUtilities }) {
+      addUtilities({
+        '.card-surface': {
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border-default)',
+          borderRadius: '1rem',
+        },
+        '.glass-panel': {
+          background: 'var(--bg-elevated)',
+          border: '1px solid var(--glass-border)',
+          backdropFilter: 'blur(20px)',
+        },
+        '.scrollbar-hide': {
+          scrollbarWidth: 'none',
+          '&::-webkit-scrollbar': {
+            display: 'none',
+          },
+        },
+      })
+    },
+  ],
 }

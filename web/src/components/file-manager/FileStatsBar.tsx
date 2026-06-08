@@ -3,6 +3,7 @@ import {
   FileVideo,
   Film,
   Tv,
+  Music,
   Check,
   AlertCircle,
   HardDrive,
@@ -25,6 +26,7 @@ export default function FileStatsBar({ stats }: FileStatsBarProps) {
     { label: '总文件', value: stats.total_files, icon: FileVideo, color: 'text-blue-400' },
     { label: '电影', value: stats.movie_count, icon: Film, color: 'text-purple-400' },
     { label: '剧集', value: stats.episode_count, icon: Tv, color: 'text-green-400' },
+    { label: '音乐', value: stats.music_count ?? 0, icon: Music, color: 'text-pink-400' },
     { label: '已刮削', value: stats.scraped_count, icon: Check, color: 'text-emerald-400' },
     { label: '未刮削', value: stats.unscraped_count, icon: AlertCircle, color: 'text-amber-400' },
     { label: '总大小', value: formatFileSize(stats.total_size_bytes), icon: HardDrive, color: 'text-cyan-400' },
@@ -44,12 +46,12 @@ export default function FileStatsBar({ stats }: FileStatsBarProps) {
   const items = [...baseItems, ...extraItems]
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+    <div className="flex flex-wrap gap-2">
       {items.map((item, i) => (
-        <div key={i} className="glass-panel rounded-xl p-3 text-center">
-          <item.icon size={18} className={clsx('mx-auto mb-1', item.color)} />
-          <div className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{item.value}</div>
-          <div className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{item.label}</div>
+        <div key={i} className="glass-panel rounded-lg px-3 py-2 text-center flex-1 min-w-[80px]">
+          <item.icon size={14} className={clsx('mx-auto mb-0.5', item.color)} />
+          <div className="text-sm font-bold leading-tight" style={{ color: 'var(--text-primary)' }}>{item.value}</div>
+          <div className="text-[10px] leading-tight" style={{ color: 'var(--text-tertiary)' }}>{item.label}</div>
         </div>
       ))}
     </div>

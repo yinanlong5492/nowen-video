@@ -30,7 +30,6 @@ type Services struct {
 	Scheduler      *SchedulerService
 	FileWatcher    *FileWatcherService
 	NFO            *NFOService
-	Stats          *StatsService
 	Webhook        *WebhookService
 	VFS            *VFSManager
 	WebDAV         *WebDAVService
@@ -56,6 +55,9 @@ type Services struct {
 	Music           *MusicService
 	Photo           *PhotoService
 	Federation      *FederationService
+	// 有声书
+	AudioBook *AudioBookService
+	Ximalaya  *XimalayaService
 	// V3: 新增服务
 	AIScene *AISceneService
 	// V5: Pulse 数据中心
@@ -96,7 +98,7 @@ type Services struct {
 func NewServices(repos *repository.Repositories, cfg *config.Config, logger *zap.SugaredLogger) *Services {
 	transcoder := NewTranscodeService(repos.Transcode, cfg, logger)
 	scanner := NewScannerService(repos.Media, repos.Series, cfg, logger)
-	metadata := NewMetadataService(repos.Media, repos.Series, repos.Person, repos.MediaPerson, cfg, logger)
+	metadata := NewMetadataService(repos.Media, repos.Series, repos.Person, repos.MediaPerson, repos.SystemLog, cfg, logger)
 
 	// 创建WebSocket Hub
 	wsHub := NewWSHub(logger)
@@ -118,9 +120,27 @@ func NewServices(repos *repository.Repositories, cfg *config.Config, logger *zap
 	scheduler.SetWSHub(wsHub)
 	scheduler.Start()
 
+	// V2: 创建音乐库服务
+	musicService, err := NewMusicService(repos.DB(), logger)
+	if err != nil {
+		logger.Fatalf("Failed to create music service: %v", err)
+	}
+	if cfg.App.FFprobePath != "" {
+		musicService.SetFFprobePath(cfg.App.FFprobePath)
+	}
+
+	// 创建有声书服务
+	audioBookService := NewAudioBookService(repos.DB(), repos.AudioBook, repos.Library, logger)
+
+	// 创建喜马拉雅刮削服务
+	ximalayaService := NewXimalayaService(cfg, logger)
+	audioBookService.SetXimalayaService(ximalayaService)
+
 	// 创建文件监听服务
-	fileWatcher := NewFileWatcherService(cfg, logger, repos.Library, repos.Media, repos.Series, scanner, metadata)
+	fileWatcher := NewFileWatcherService(cfg, logger, repos.Library, repos.Media, repos.Series, scanner, metadata, musicService)
 	fileWatcher.SetWSHub(wsHub)
+	fileWatcher.SetAudioBookService(audioBookService)
+	audioBookService.SetWSHub(wsHub)
 	if err := fileWatcher.Start(); err != nil {
 		logger.Errorf("文件监听服务启动失败: %v", err)
 	}
@@ -131,7 +151,6 @@ func NewServices(repos *repository.Repositories, cfg *config.Config, logger *zap
 	// 创建新服务
 	nfoService := NewNFOService(logger)
 	metadata.SetNFOService(nfoService)
-	statsService := NewStatsService(repos.PlaybackStats, repos.Media, logger)
 	webhookService := NewWebhookService(logger)
 	vfsManager := NewVFSManager(logger)
 
@@ -171,15 +190,12 @@ func NewServices(repos *repository.Repositories, cfg *config.Config, logger *zap
 	// 注入演员仓储，使 AV 演员也能写入 Person 表并关联 MediaPerson
 	adultScraper.SetPersonRepos(repos.Person, repos.MediaPerson)
 
-	// 创建多数据源调度链（第三阶段：统一 Provider 接口）
+	// 创建多数据源调度链
 	providerChain := NewProviderChain(logger)
-	providerChain.Register(NewAdultProvider(adultScraper))       // 优先级 5：番号内容（最高优先级，仅匹配成人内容）
-	providerChain.Register(NewTMDbProvider(metadata))            // 优先级 10：主数据源
-	providerChain.Register(NewDoubanProvider(metadata.douban))   // 优先级 20：豆瓣补充
-	providerChain.Register(NewTheTVDBProvider(thetvdbService))   // 优先级 25：剧集增强
-	providerChain.Register(NewBangumiProvider(metadata.bangumi)) // 优先级 30：动画专项
-	providerChain.Register(NewFanartProvider(fanartService))     // 优先级 50：图片增强
-	providerChain.Register(NewAIProvider(aiService))             // 优先级 100：AI 兜底
+	providerChain.Register(NewAdultProvider(adultScraper))     // 优先级 5：番号内容（仅匹配成人内容）
+	providerChain.Register(NewTMDbProvider(metadata))          // 优先级 10：主数据源
+	providerChain.Register(NewDoubanProvider(metadata.douban)) // 优先级 20：豆瓣补充
+	providerChain.Register(NewAIProvider(aiService))           // 优先级 100：AI 兜底
 
 	// 注入 ProviderChain 到元数据服务
 	metadata.SetProviderChain(providerChain)
@@ -201,8 +217,8 @@ func NewServices(repos *repository.Repositories, cfg *config.Config, logger *zap
 
 	// 创建文件管理服务
 	fileManager := NewFileManagerService(
-		repos.Media, repos.Series, repos.FileOpLog,
-		metadata, aiService, logger,
+		repos.Media, repos.Series, repos.FileOpLog, repos.Library,
+		metadata, aiService, musicService, audioBookService, logger,
 	)
 	fileManager.SetWSHub(wsHub)
 
@@ -267,9 +283,6 @@ func NewServices(repos *repository.Repositories, cfg *config.Config, logger *zap
 	// V2: 创建可扩展插件系统
 	pluginService := NewPluginService(repos.DB(), filepath.Join(cfg.Cache.CacheDir, "plugins"), logger)
 
-	// V2: 创建音乐库服务
-	musicService := NewMusicService(repos.DB(), logger)
-
 	// V2: 创建图片库服务
 	photoService := NewPhotoService(repos.DB(), filepath.Join(cfg.Cache.CacheDir, "thumbnails", "photos"), logger)
 
@@ -293,7 +306,7 @@ func NewServices(repos *repository.Repositories, cfg *config.Config, logger *zap
 		User:           NewUserService(repos.User, repos.AuditLog, cfg, logger),
 		Auth:           NewAuthService(repos.User, repos.InviteCode, repos.LoginLog, repos.AuditLog, cfg, logger),
 		Library:        libService,
-		Media:          NewMediaService(repos.Media, repos.Series, repos.WatchHistory, repos.Favorite, repos.Library, repos.PlaybackStats, cfg, logger),
+		Media:          NewMediaService(repos.Media, repos.Series, repos.WatchHistory, repos.Favorite, repos.Library, repos.PlaybackStats, musicService, cfg, logger),
 		Series:         NewSeriesService(repos.Series, repos.Media, logger),
 		Stream:         NewStreamService(repos.Media, repos.Series, transcoder, cfg, logger),
 		Transcode:      transcoder,
@@ -308,7 +321,6 @@ func NewServices(repos *repository.Repositories, cfg *config.Config, logger *zap
 		Scheduler:      scheduler,
 		FileWatcher:    fileWatcher,
 		NFO:            nfoService,
-		Stats:          statsService,
 		Webhook:        webhookService,
 		VFS:            vfsManager,
 		WebDAV:         webdavService,
@@ -334,6 +346,8 @@ func NewServices(repos *repository.Repositories, cfg *config.Config, logger *zap
 		Music:           musicService,
 		Photo:           photoService,
 		Federation:      federationService,
+		AudioBook:       audioBookService,
+		Ximalaya:        ximalayaService,
 		// V3
 		AIScene: aiSceneService,
 		// V5: Pulse 数据中心
@@ -406,13 +420,20 @@ func NewServices(repos *repository.Repositories, cfg *config.Config, logger *zap
 	// 启动调度器（后台循环，默认未启用，需配置开启）
 	adultScheduler.Start()
 
-	// 延迟注入：SeriesService 需要 MediaPersonRepo（用于合并时迁移演职员关联）	svcs.Series.SetMediaPersonRepo(repos.MediaPerson)
+	// 延迟注入：SeriesService 需要 MediaPersonRepo（用于合并时迁移演职员关联）
+	svcs.Series.SetMediaPersonRepo(repos.MediaPerson)
+	// 延迟注入：SeriesService 需要 MetadataService（用于获取季海报）
+	svcs.Series.SetMetadataService(svcs.Metadata)
 
 	// 延迟注入：LibraryService 需要 SeriesService（用于扫描后自动合并重复剧集）
 	svcs.Library.SetSeriesService(svcs.Series)
 
 	// 延迟注入：LibraryService 需要 CollectionService（用于扫描+刮削后自动匹配电影系列合集）
 	svcs.Library.SetCollectionService(svcs.Collection)
+
+	// 延迟注入：LibraryService 需要 MusicService（用于扫描音乐类型媒体库）
+	svcs.Library.SetMusicService(svcs.Music)
+	svcs.Library.SetAudioBookService(svcs.AudioBook)
 
 	// 延迟注入：StreamService 需要 PreprocessService（用于自动选择预处理内容）
 	svcs.Stream.SetPreprocessService(preprocessService)

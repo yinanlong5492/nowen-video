@@ -1,13 +1,13 @@
 api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
 api_key: ENC:j6Sz3NQ//+wLXPxCoYdgjwcwB+b1X5XWGeEWvYBYSR/0oUHvuWkqDgQW6I3CJaByAh7gzWvTa9h34UEAPkaE
-auto_pilot: true
+auto_pilot: false
 auto_subtitle_preprocess: false
 block_local_ai: true
 cache_ttl_hours: 168
-enable_metadata_enhance: true
-enable_recommend_reason: true
-enable_smart_search: true
-enabled: true
+enable_metadata_enhance: false
+enable_recommend_reason: false
+enable_smart_search: false
+enabled: false
 failover:
     auto_recover_after_min: 0
     chain: []
@@ -26,8 +26,8 @@ prefer_local_whisper: false
 profiles:
     qwen:
         api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
-        api_key: ENC:gDPjGFSn6Wiy/bnj3Vd/h/vjCTgnFtvHF+0Rdp4/zrNSwKVBG233C+5tH24PCCAw3iymW/RNcTIvuMsT+4pF
-        enabled: false
+        api_key: ENC:j6Sz3NQ//+wLXPxCoYdgjwcwB+b1X5XWGeEWvYBYSR/0oUHvuWkqDgQW6I3CJaByAh7gzWvTa9h34UEAPkaE
+        enabled: true
         model: qwen-turbo
 provider: qwen
 request_interval_ms: 1100

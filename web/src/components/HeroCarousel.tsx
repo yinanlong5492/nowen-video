@@ -1,17 +1,17 @@
 // ============================================================
-// HeroCarousel �?现代化全屏幻灯片轮播组件
+// HeroCarousel  ?现代化全屏幻灯片轮播组件
 // 深空流体 · 赛博朋克风格
 // ============================================================
 //
 // 特性：
-// - framer-motion 驱动的方向感知滑动切�?
-// - 触摸手势拖拽支持（移动端左右滑动�?
-// - 悬停自动暂停 + 进度条指�?
-// - 键盘导航（← �?方向键）
+// - framer-motion 驱动的方向感知滑动切 ?
+// - 触摸手势拖拽支持（移动端左右滑动 ?
+// - 悬停自动暂停 + 进度条指 ?
+// - 键盘导航（←  ?方向键）
 // - 视差滚动背景效果
-// - 响应式布局（移动端/桌面端差异化�?
-// - reduce-motion 无障碍兼�?
-// - 图片预加载策�?
+// - 响应式布局（移动端/桌面端差异化 ?
+// - reduce-motion 无障碍兼 ?
+// - 图片预加载策 ?
 // ============================================================
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
@@ -32,7 +32,7 @@ import clsx from 'clsx'
 
 // ==================== 动画变体 ====================
 
-/** 背景图切�?�?方向感知 + 缩放 */
+/** 背景图切 ? ?方向感知 + 缩放 */
 const bgVariants = {
   enter: (dir: number) => ({
     opacity: 0,
@@ -61,7 +61,7 @@ const bgVariants = {
   }),
 }
 
-/** 内容区入�?�?从底部上�?+ 模糊 */
+/** 内容区入 ? ?从底部上 ?+ 模糊 */
 const contentVariants = {
   enter: {
     opacity: 0,
@@ -91,7 +91,7 @@ const contentVariants = {
   },
 }
 
-/** 内容子元素交错入�?*/
+/** 内容子元素交错入 ?*/
 const contentChildVariants = {
   enter: { opacity: 0, y: 12 },
   center: {
@@ -104,17 +104,17 @@ const contentChildVariants = {
 
 // ==================== 常量 ====================
 const AUTO_PLAY_INTERVAL = 7000 // 自动轮播间隔 7s
-const SWIPE_THRESHOLD = 50 // 触摸滑动阈�?px
-const SWIPE_VELOCITY = 300 // 触摸滑动速度阈�?
+const SWIPE_THRESHOLD = 50 // 触摸滑动阈 ?px
+const SWIPE_VELOCITY = 300 // 触摸滑动速度阈 ?
 
 // ==================== 工具函数 ====================
-/** �?MixedItem 转换�?HeroCarousel 可用�?RecommendedMedia 格式 */
+/**  ?MixedItem 转换 ?HeroCarousel 可用 ?RecommendedMedia 格式 */
 function mixedItemToRecommended(item: MixedItem, fallbackReason: string): RecommendedMedia | null {
   if (item.type === 'movie' && item.media) {
     return { media: item.media, score: 0, reason: fallbackReason }
   }
   if (item.type === 'series' && item.series) {
-    // �?Series 适配�?Media 接口（只填充轮播展示所需的字段）
+    //  ?Series 适配 ?Media 接口（只填充轮播展示所需的字段）
     const s = item.series
     const pseudoMedia: Media = {
       id: s.id,
@@ -129,7 +129,7 @@ function mixedItemToRecommended(item: MixedItem, fallbackReason: string): Recomm
       genres: s.genres,
       media_type: 'episode',
       series_id: s.id,
-      // 以下字段轮播不使用，填默认�?
+      // 以下字段轮播不使用，填默认 ?
       runtime: 0, file_path: '', file_size: 0, video_codec: '', audio_codec: '',
       resolution: '', duration: 0, subtitle_paths: '',
       tmdb_id: s.tmdb_id || 0, douban_id: s.douban_id || '', bangumi_id: s.bangumi_id || 0,
@@ -139,7 +139,8 @@ function mixedItemToRecommended(item: MixedItem, fallbackReason: string): Recomm
       num: '', sort_title: '', outline: '', original_plot: '',
       mpaa: '', country_code: '', maker: '', publisher: '',
       label: '', tags: '', website: '', release_date: '', premiered: '',
-      season_num: 0, episode_num: 0, episode_title: '', created_at: s.created_at || '',
+      season_num: 0, episode_num: 0, episode_title: '',
+      logo_path: '', created_at: s.created_at || '',
     }
     return { media: pseudoMedia, score: 0, reason: fallbackReason }
   }
@@ -149,18 +150,18 @@ function mixedItemToRecommended(item: MixedItem, fallbackReason: string): Recomm
 // ==================== 组件 Props ====================
 interface HeroCarouselProps {
   items: RecommendedMedia[]
-  /** �?items 为空时的备选数据源（最近添加的混合列表�?*/
+  /**  ?items 为空时的备选数据源（最近添加的混合列表 ?*/
   fallbackItems?: MixedItem[]
   /** 最大展示数量，默认 5 */
   maxItems?: number
 }
 
-// ==================== 主组�?====================
+// ==================== 主组 ?====================
 export default function HeroCarousel({ items: rawItems, fallbackItems, maxItems = 5 }: HeroCarouselProps) {
   const { t } = useTranslation()
   const prefersReducedMotion = useReducedMotion()
 
-  // 优先使用推荐数据；为空时�?fallback 数据
+  // 优先使用推荐数据；为空时 ?fallback 数据
   const items = useMemo(() => {
     if (rawItems.length > 0) return rawItems.slice(0, maxItems)
     if (fallbackItems && fallbackItems.length > 0) {
@@ -173,7 +174,7 @@ export default function HeroCarousel({ items: rawItems, fallbackItems, maxItems 
     return []
   }, [rawItems, fallbackItems, maxItems, t])
 
-  // ---- 状�?----
+  // ---- 状 ?----
   const [current, setCurrent] = useState(0)
   const [direction, setDirection] = useState(1)
   const [isPaused, setIsPaused] = useState(false)
@@ -227,7 +228,7 @@ export default function HeroCarousel({ items: rawItems, fallbackItems, maxItems 
     }
   }, [])
 
-  // 自动轮播 �?悬停或手动暂停时停止
+  // 自动轮播  ?悬停或手动暂停时停止
   useEffect(() => {
     if (isPaused || isHovering) {
       stopAutoPlay()
@@ -256,7 +257,7 @@ export default function HeroCarousel({ items: rawItems, fallbackItems, maxItems 
   // ---- 键盘导航 ----
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // 只在轮播区域可见时响�?
+      // 只在轮播区域可见时响 ?
       if (!containerRef.current) return
       const rect = containerRef.current.getBoundingClientRect()
       if (rect.bottom < 0 || rect.top > window.innerHeight) return
@@ -285,7 +286,7 @@ export default function HeroCarousel({ items: rawItems, fallbackItems, maxItems 
     }
   }, [goPrev, goNext])
 
-  // ---- 进度条动�?----
+  // ---- 进度条动 ?----
   useEffect(() => {
     if (!progressRef.current || isPaused || isHovering || items.length <= 1) return
     const el = progressRef.current
@@ -299,7 +300,7 @@ export default function HeroCarousel({ items: rawItems, fallbackItems, maxItems 
     el.style.width = '100%'
   }, [current, isPaused, isHovering, items.length])
 
-  // ---- 安全检�?----
+  // ---- 安全检 ?----
   if (!items.length) return null
   const item = items[current]
   if (!item) return null
@@ -357,7 +358,7 @@ export default function HeroCarousel({ items: rawItems, fallbackItems, maxItems 
           </motion.div>
         </AnimatePresence>
 
-        {/* 预加载相邻图�?*/}
+        {/* 预加载相邻图 ?*/}
         {items.map((rec, i) => i !== current && (
           <img
             key={`preload-${rec.media.id}`}
@@ -369,8 +370,8 @@ export default function HeroCarousel({ items: rawItems, fallbackItems, maxItems 
           />
         ))}
 
-        {/* ==================== 渐变遮罩�?==================== */}
-        {/* 底部渐变 �?确保文字可读 */}
+        {/* ==================== 渐变遮罩 ?==================== */}
+        {/* 底部渐变  ?确保文字可读 */}
         <div
           className="pointer-events-none absolute inset-0"
           style={{
@@ -388,9 +389,9 @@ export default function HeroCarousel({ items: rawItems, fallbackItems, maxItems 
           }}
         />
 
-        {/* ==================== 内容�?==================== */}
+        {/* ==================== 内容 ?==================== */}
         <div className="absolute bottom-0 left-0 right-0 px-4 pb-10 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-7xl">
+          <div className="mx-auto">
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={`content-${current}`}
@@ -439,7 +440,7 @@ export default function HeroCarousel({ items: rawItems, fallbackItems, maxItems 
                   )}
                 </motion.div>
 
-                {/* 简�?*/}
+                {/* 简 ?*/}
                 {item.media.overview && (
                   <motion.p
                     variants={contentChildVariants}
@@ -451,7 +452,7 @@ export default function HeroCarousel({ items: rawItems, fallbackItems, maxItems 
 
                 {/* 操作按钮 */}
                 <motion.div variants={contentChildVariants} className="flex items-center gap-3">
-                  {/* 播放按钮 �?�?CTA */}
+                  {/* 播放按钮  ? ?CTA */}
                   <motion.div
                     whileHover={{ scale: 1.04, y: -2 }}
                     whileTap={{ scale: 0.96 }}
@@ -536,11 +537,11 @@ export default function HeroCarousel({ items: rawItems, fallbackItems, maxItems 
           </>
         )}
 
-        {/* ==================== 底部控制�?==================== */}
+        {/* ==================== 底部控制 ?==================== */}
         {items.length > 1 && (
           <div className="absolute bottom-0 left-0 right-0 z-10">
-            {/* 进度�?*/}
-            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            {/* 进度 ?*/}
+            <div className="mx-auto px-4 sm:px-6 lg:px-8">
               <div className="flex items-center gap-3">
                 {/* 暂停/播放按钮 */}
                 <motion.button
@@ -552,7 +553,7 @@ export default function HeroCarousel({ items: rawItems, fallbackItems, maxItems 
                   {isPaused ? <Play size={10} fill="currentColor" /> : <Pause size={10} />}
                 </motion.button>
 
-                {/* 指示�?+ 进度�?*/}
+                {/* 指示 ?+ 进度 ?*/}
                 <div className="flex flex-1 items-center gap-1.5">
                   {items.map((_, i) => (
                     <button
@@ -583,7 +584,7 @@ aria-label={`第 ${i + 1} 张`}
                           }}
                         />
                       )}
-                      {/* 已完成的指示�?*/}
+                      {/* 已完成的指示 ?*/}
                       {i < current && (
                         <div
                           className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full"
@@ -597,7 +598,7 @@ aria-label={`第 ${i + 1} 张`}
                   ))}
                 </div>
 
-                {/* 计数�?*/}
+                {/* 计数 ?*/}
                 <span className="shrink-0 text-[10px] font-medium tabular-nums text-white/40">
                   {String(current + 1).padStart(2, '0')}/{String(items.length).padStart(2, '0')}
                 </span>
@@ -609,7 +610,7 @@ aria-label={`第 ${i + 1} 张`}
           </div>
         )}
 
-        {/* ==================== 右侧缩略图预览（仅桌面端�?==================== */}
+        {/* ==================== 右侧缩略图预览（仅桌面端 ?==================== */}
         {items.length > 1 && (
           <div className="pointer-events-auto absolute bottom-16 right-4 z-10 hidden items-end gap-2 lg:flex lg:right-6 xl:right-8">
             {items.map((rec, i) => (
@@ -641,7 +642,7 @@ aria-label={`第 ${i + 1} 张`}
                   loading="lazy"
                   draggable={false}
                 />
-                {/* 当前项高亮边框光�?*/}
+                {/* 当前项高亮边框光 ?*/}
                 {i === current && (
                   <motion.div
                     className="absolute inset-0 rounded-lg"

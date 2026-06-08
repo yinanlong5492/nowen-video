@@ -7,6 +7,7 @@ import { useToast } from './Toast'
 import { useDialog } from './Dialog'
 import CreateLibraryModal from './CreateLibraryModal'
 import EditLibraryModal from './EditLibraryModal'
+import RefreshMetadataModal from './RefreshMetadataModal'
 import LazyIngestModal from './LazyIngestModal'
 import {
   FolderPlus,
@@ -17,13 +18,13 @@ import {
   Tv,
   Layers,
   Video,
+  Music,
+  Headphones,
   ArrowUpDown,
   ScanLine,
-  MoreHorizontal,
   Calendar,
   FolderOpen,
   ChevronRight,
-  RotateCcw,
   Pencil,
   Sparkles,
 } from 'lucide-react'
@@ -35,6 +36,8 @@ const TYPE_CONFIG: Record<string, { label: string; icon: typeof Film; color: str
   tvshow: { label: '电视节目', icon: Tv, color: 'var(--neon-purple)', bg: 'var(--neon-purple-8)' },
   mixed: { label: '混合影片', icon: Layers, color: '#F59E0B', bg: 'rgba(245, 158, 11, 0.08)' },
   other: { label: '其他视频', icon: Video, color: '#10B981', bg: 'rgba(16, 185, 129, 0.08)' },
+  music: { label: '音乐库', icon: Music, color: 'var(--neon-pink)', bg: 'var(--neon-pink-8)' },
+  audiobook: { label: '有声书', icon: Headphones, color: '#8B5CF6', bg: 'rgba(139, 92, 246, 0.08)' },
 }
 
 interface LibraryManagerProps {
@@ -45,6 +48,8 @@ interface LibraryManagerProps {
   scanProgress: Record<string, ScanProgressData>
   scrapeProgress: Record<string, ScrapeProgressData>
   scanPhase: Record<string, ScanPhaseData>
+  tmdbEnabled: boolean
+  doubanEnabled: boolean
 }
 
 export default function LibraryManager({
@@ -55,16 +60,27 @@ export default function LibraryManager({
   scanProgress,
   scrapeProgress,
   scanPhase,
+  tmdbEnabled,
+  doubanEnabled,
 }: LibraryManagerProps) {
   const toast = useToast()
   const dialog = useDialog()
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showLazyIngestModal, setShowLazyIngestModal] = useState(false)
-  const [sortBy, setSortBy] = useState<'name' | 'created' | 'type'>('created')
-  const [sortAsc, setSortAsc] = useState(false)
-  const [activeMenu, setActiveMenu] = useState<string | null>(null)
+  // 从 localStorage 读取排序配置，如果不存在则使用默认值
+  const savedSortBy = localStorage.getItem('library_sort_by') as 'name' | 'created' | 'type' | null
+  const savedSortAsc = localStorage.getItem('library_sort_asc') === 'true'
+  const [sortBy, setSortBy] = useState<'name' | 'created' | 'type'>(savedSortBy || 'created')
+  const [sortAsc, setSortAsc] = useState(savedSortAsc)
   const [scanAllLoading, setScanAllLoading] = useState(false)
   const [editingLibrary, setEditingLibrary] = useState<Library | null>(null)
+  const [refreshMetaLib, setRefreshMetaLib] = useState<Library | null>(null)
+
+  // 保存排序配置到 localStorage
+  const saveSortConfig = (newSortBy: 'name' | 'created' | 'type', newSortAsc: boolean) => {
+    localStorage.setItem('library_sort_by', newSortBy)
+    localStorage.setItem('library_sort_asc', String(newSortAsc))
+  }
 
   // 排序逻辑
   const sortedLibraries = [...libraries].sort((a, b) => {
@@ -76,12 +92,26 @@ export default function LibraryManager({
   })
 
   const handleCreate = async (data: CreateLibraryRequest) => {
-    await libraryApi.create(data)
+    const createRes = await libraryApi.create(data)
     const res = await libraryApi.list()
     setLibraries(res.data.data || [])
+
+    // 音乐库创建后自动触发扫描
+    const createdLib = createRes.data?.data
+    if (createdLib && createdLib.type === 'music') {
+      handleScan(createdLib.id)
+    }
   }
 
   const handleScan = async (id: string) => {
+    if (!tmdbEnabled && !doubanEnabled) {
+      const ok = await dialog.confirm({
+        title: '刮削数据源未启用',
+        message: 'TMDB 和豆瓣刮削均已关闭，是否仅使用本地元数据文件进行扫描？',
+        confirmText: '继续扫描',
+      })
+      if (!ok) return
+    }
     setScanning((s) => new Set(s).add(id))
     try {
       await libraryApi.scan(id)
@@ -97,6 +127,14 @@ export default function LibraryManager({
   }
 
   const handleScanAll = async () => {
+    if (!tmdbEnabled && !doubanEnabled) {
+      const ok = await dialog.confirm({
+        title: '刮削数据源未启用',
+        message: 'TMDB 和豆瓣刮削均已关闭，是否仅使用本地元数据文件进行扫描？',
+        confirmText: '继续扫描',
+      })
+      if (!ok) return
+    }
     const toScan = libraries.filter((lib) => !scanning.has(lib.id))
     if (toScan.length === 0) {
       toast.info('所有媒体库已在扫描中')
@@ -129,33 +167,15 @@ export default function LibraryManager({
     }
   }
 
-  const handleReindex = async (id: string) => {
-    const ok = await dialog.confirm({
-      title: '重建索引',
-      message: '确定重建索引？这将清除现有媒体记录并重新扫描文件。',
-      confirmText: '重建',
-      variant: 'warning',
-    })
-    if (!ok) return
-    setScanning((s) => new Set(s).add(id))
-    try {
-      await libraryApi.reindex(id)
-    } catch {
-      setScanning((s) => {
-        const ns = new Set(s)
-        ns.delete(id)
-        return ns
-      })
-      toast.error('重建索引失败')
-    }
-  }
-
   const toggleSort = (field: typeof sortBy) => {
     if (sortBy === field) {
-      setSortAsc(!sortAsc)
+      const newSortAsc = !sortAsc
+      setSortAsc(newSortAsc)
+      saveSortConfig(sortBy, newSortAsc)
     } else {
       setSortBy(field)
       setSortAsc(false)
+      saveSortConfig(field, false)
     }
   }
 
@@ -404,19 +424,32 @@ export default function LibraryManager({
 
                   {/* 操作按钮 */}
                   <div className="flex items-center justify-center gap-1">
-                    {/* 扫描 */}
+                    {/* 扫描媒体库 */}
                     <button
                       onClick={() => handleScan(lib.id)}
-                      disabled={isScanning}
+                      disabled={scanning.has(lib.id)}
                       className="rounded-lg p-2 transition-all hover:bg-[var(--nav-hover-bg)] disabled:opacity-40"
                       style={{ color: 'var(--text-tertiary)' }}
-                      title="扫描媒体文件"
+                      title="扫描媒体库"
+                    >
+                      {scanning.has(lib.id) ? (
+                        <RefreshCw size={16} className="animate-spin" />
+                      ) : (
+                        <ScanLine size={16} />
+                      )}
+                    </button>
+
+                    {/* 刷新元数据 */}
+                    <button
+                      onClick={() => setRefreshMetaLib(lib)}
+                      className="rounded-lg p-2 transition-all hover:bg-[var(--nav-hover-bg)]"
+                      style={{ color: 'var(--text-tertiary)' }}
+                      title="刷新元数据"
                     >
                       <RefreshCw
                         size={16}
                         className={clsx(
                           'transition-all',
-                          isScanning && 'animate-spin text-neon'
                         )}
                       />
                     </button>
@@ -430,55 +463,15 @@ export default function LibraryManager({
                       <Trash2 size={16} />
                     </button>
 
-                    {/* 更多操作 */}
-                    <div className="relative">
-                      <button
-                        onClick={() => setActiveMenu(activeMenu === lib.id ? null : lib.id)}
-                        className="rounded-lg p-2 transition-all hover:bg-[var(--nav-hover-bg)]"
-                        style={{ color: 'var(--text-tertiary)' }}
-                      >
-                        <MoreHorizontal size={16} />
-                      </button>
-
-                      {/* 下拉菜单 */}
-                      {activeMenu === lib.id && (
-                        <>
-                          <div className="fixed inset-0 z-30" onClick={() => setActiveMenu(null)} />
-                          <div
-                            className="absolute right-0 top-full z-40 mt-1 w-44 overflow-hidden rounded-xl py-1 animate-slide-up"
-                            style={{
-                              background: 'var(--bg-elevated)',
-                              border: '1px solid var(--border-strong)',
-                              boxShadow: 'var(--shadow-elevated)',
-                            }}
-                          >
-                            <button
-                              onClick={() => {
-                                setActiveMenu(null)
-                                setEditingLibrary(lib)
-                              }}
-                              className="flex w-full items-center gap-2 px-4 py-2.5 text-sm transition-colors hover:bg-[var(--nav-hover-bg)]"
-                              style={{ color: 'var(--text-secondary)' }}
-                            >
-                              <Pencil size={14} />
-                              编辑媒体库
-                            </button>
-                            <button
-                              onClick={() => {
-                                setActiveMenu(null)
-                                handleReindex(lib.id)
-                              }}
-                              disabled={isScanning}
-                              className="flex w-full items-center gap-2 px-4 py-2.5 text-sm transition-colors hover:bg-[var(--nav-hover-bg)] disabled:opacity-40"
-                              style={{ color: 'var(--text-secondary)' }}
-                            >
-                              <RotateCcw size={14} />
-                              重建索引
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
+                    {/* 编辑媒体库 */}
+                    <button
+                      onClick={() => setEditingLibrary(lib)}
+                      className="rounded-lg p-2 transition-all hover:bg-[var(--nav-hover-bg)]"
+                      style={{ color: 'var(--text-tertiary)' }}
+                      title="编辑媒体库"
+                    >
+                      <Pencil size={16} />
+                    </button>
                   </div>
                 </div>
 
@@ -600,6 +593,14 @@ export default function LibraryManager({
           setLibraries((libs) => libs.map((l) => (l.id === updated.id ? updated : l)))
           toast.success('媒体库已更新')
         }}
+      />
+
+      <RefreshMetadataModal
+        open={!!refreshMetaLib}
+        library={refreshMetaLib}
+        onClose={() => setRefreshMetaLib(null)}
+        tmdbEnabled={tmdbEnabled}
+        doubanEnabled={doubanEnabled}
       />
 
       {/* ===== 智能重命名已收敛到「扫描归类 · 专家模式」（方案 B） ===== */}

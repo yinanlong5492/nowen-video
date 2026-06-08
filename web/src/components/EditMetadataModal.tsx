@@ -19,6 +19,7 @@ interface EditMetadataModalProps {
   editForm: Record<string, any>
   setEditForm: (form: any) => void
   currentPoster: string
+  currentBackdrop?: string
   hasPoster: boolean
   hasBackdrop: boolean
   onSave: () => Promise<void> | void
@@ -35,6 +36,7 @@ export default function EditMetadataModal({
   editForm,
   setEditForm,
   currentPoster,
+  currentBackdrop,
   hasPoster,
   hasBackdrop,
   onSave,
@@ -209,7 +211,7 @@ export default function EditMetadataModal({
                   className="h-full w-full object-cover"
                 />
               ) : (imageTab === 'poster' ? hasPoster : hasBackdrop) ? (
-                <img src={currentPoster} alt="当前图片" className="h-full w-full object-cover" />
+                <img src={imageTab === 'poster' ? currentPoster : (currentBackdrop || currentPoster)} alt="当前图片" className="h-full w-full object-cover" />
               ) : (
                 <div className="flex h-full w-full items-center justify-center" style={{ color: 'var(--text-muted)' }}>
                   <Image size={20} />

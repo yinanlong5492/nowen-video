@@ -210,6 +210,9 @@ func (l *AdultPythonLauncher) pipeLogs(tag string, r io.Reader) {
 		}
 		l.logger.Infof("[adult-python/%s] %s", tag, line)
 	}
+	if err := sc.Err(); err != nil {
+		l.logger.Errorf("[adult-python/%s] scanner error: %v", tag, err)
+	}
 }
 
 func (l *AdultPythonLauncher) waitHealthy(timeout time.Duration) error {

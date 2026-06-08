@@ -108,8 +108,6 @@ var (
 		// @ 水印：整行就是 @xxx
 		regexp.MustCompile(`(?i)^[\s\pP]*[@＠]\s*\w+\s*$`),
 	}
-	// VTT 时间戳格式匹配
-	vttTimeRegex = regexp.MustCompile(`^(\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}$`)
 	// 句子断点符（按优先级：句号 > 分号 > 逗号 > 空格）
 	sentenceBreakChars = []rune{'。', '！', '？', '.', '!', '?'}
 	clauseBreakChars   = []rune{'；', '，', ';', ','}
@@ -236,8 +234,11 @@ func decodeByCharset(data []byte, charset string) (string, bool) {
 	var decoder *transform.Reader
 
 	switch charset {
-	case "gb2312", "gbk", "gb18030", "gb-2312", "gb-18030":
+	case "gb2312", "gbk", "gb-2312":
 		decoder = transform.NewReader(bytes.NewReader(data), simplifiedchinese.GBK.NewDecoder())
+	case "gb18030", "gb-18030":
+		// GB18030 是 GBK 的超集，支持更多字符（包括 emoji）
+		decoder = transform.NewReader(bytes.NewReader(data), simplifiedchinese.GB18030.NewDecoder())
 	case "big5", "big-5":
 		decoder = transform.NewReader(bytes.NewReader(data), traditionalchinese.Big5.NewDecoder())
 	case "shift_jis", "shift-jis", "sjis", "shiftjis":

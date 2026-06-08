@@ -4,7 +4,6 @@ import type { Media, Library, FileManagerStats } from '@/types'
 export const SOURCE_OPTIONS = [
   { value: '', label: '自动 (TMDb)' },
   { value: 'tmdb', label: 'TMDb' },
-  { value: 'bangumi', label: 'Bangumi' },
   { value: 'ai', label: 'AI增强' },
 ]
 

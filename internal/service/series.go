@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ type SeriesService struct {
 	seriesRepo      *repository.SeriesRepo
 	mediaRepo       *repository.MediaRepo
 	mediaPersonRepo *repository.MediaPersonRepo
+	metadataService *MetadataService
 	logger          *zap.SugaredLogger
 }
 
@@ -32,6 +34,11 @@ func NewSeriesService(seriesRepo *repository.SeriesRepo, mediaRepo *repository.M
 // SetMediaPersonRepo 延迟注入 MediaPersonRepo（避免循环依赖）
 func (s *SeriesService) SetMediaPersonRepo(repo *repository.MediaPersonRepo) {
 	s.mediaPersonRepo = repo
+}
+
+// SetMetadataService 延迟注入 MetadataService（避免循环依赖）
+func (s *SeriesService) SetMetadataService(ms *MetadataService) {
+	s.metadataService = ms
 }
 
 // ListSeries 获取剧集合集列表（分页）
@@ -50,25 +57,84 @@ func (s *SeriesService) GetSeriesDetail(id string) (*model.Series, error) {
 
 // GetSeasons 获取剧集合集的季列表
 func (s *SeriesService) GetSeasons(seriesID string) ([]SeasonInfo, error) {
-	seasons, err := s.seriesRepo.GetSeasonNumbers(seriesID)
+	allEpisodes, err := s.mediaRepo.ListBySeriesID(seriesID)
 	if err != nil {
 		return nil, err
 	}
 
-	var result []SeasonInfo
-	for _, num := range seasons {
-		episodes, err := s.mediaRepo.ListBySeriesAndSeason(seriesID, num)
-		if err != nil {
-			continue
-		}
+	series, err := s.seriesRepo.FindByID(seriesID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 按季分组
+	seasonMap := make(map[int][]model.Media)
+	for _, ep := range allEpisodes {
+		seasonMap[ep.SeasonNum] = append(seasonMap[ep.SeasonNum], ep)
+	}
+
+	seasonNums := make([]int, 0, len(seasonMap))
+	for num := range seasonMap {
+		seasonNums = append(seasonNums, num)
+	}
+	sort.Ints(seasonNums)
+
+	result := make([]SeasonInfo, 0, len(seasonNums))
+	for _, num := range seasonNums {
+		episodes := seasonMap[num]
 		result = append(result, SeasonInfo{
 			SeasonNum:    num,
 			EpisodeCount: len(episodes),
+			Year:         getYearFromEpisodes(episodes),
+			PosterPath:   s.getSeasonPosterPath(series, num),
 			Episodes:     episodes,
 		})
 	}
 
 	return result, nil
+}
+
+// getSeasonPosterPath 检查季海报本地文件是否存在（返回标记而非路径）
+func (s *SeriesService) getSeasonPosterPath(series *model.Series, seasonNum int) string {
+	basePatterns := []string{
+		fmt.Sprintf("season%02d-poster", seasonNum),
+		fmt.Sprintf("season%d-poster", seasonNum),
+	}
+	extensions := []string{".jpg", ".jpeg", ".png", ".webp"}
+	
+	for _, base := range basePatterns {
+		for _, ext := range extensions {
+			localPath := filepath.Join(series.FolderPath, base+ext)
+			if _, err := os.Stat(localPath); err == nil {
+				return "1"
+			}
+		}
+	}
+	return ""
+}
+
+// GetSeasonPosterPath 获取季海报本地文件路径（供 handler 使用）
+func (s *SeriesService) GetSeasonPosterPath(seriesID string, seasonNum int) (string, error) {
+	series, err := s.seriesRepo.FindByID(seriesID)
+	if err != nil {
+		return "", err
+	}
+
+	basePatterns := []string{
+		fmt.Sprintf("season%02d-poster", seasonNum),
+		fmt.Sprintf("season%d-poster", seasonNum),
+	}
+	extensions := []string{".jpg", ".jpeg", ".png", ".webp"}
+	
+	for _, base := range basePatterns {
+		for _, ext := range extensions {
+			localPath := filepath.Join(series.FolderPath, base+ext)
+			if _, err := os.Stat(localPath); err == nil {
+				return localPath, nil
+			}
+		}
+	}
+	return "", nil
 }
 
 // GetSeasonEpisodes 获取指定季的所有剧集
@@ -137,7 +203,17 @@ func (s *SeriesService) GetSeriesPosterPath(id string) (string, error) {
 type SeasonInfo struct {
 	SeasonNum    int           `json:"season_num"`
 	EpisodeCount int           `json:"episode_count"`
+	Year         int           `json:"year"`
+	PosterPath   string        `json:"poster_path"`
 	Episodes     []model.Media `json:"episodes"`
+}
+
+// getYearFromEpisodes 从剧集中提取年份（取第一集的年份）
+func getYearFromEpisodes(episodes []model.Media) int {
+	if len(episodes) > 0 {
+		return episodes[0].Year
+	}
+	return 0
 }
 
 // MergeResult 合并操作结果

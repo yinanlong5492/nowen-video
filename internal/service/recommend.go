@@ -366,7 +366,7 @@ func (s *RecommendService) cosineSimilarity(a, b map[string]float64) float64 {
 
 // getContentBasedRecommendations 基于内容的推荐（利用类型/年份相似度）
 func (s *RecommendService) getContentBasedRecommendations(
-	userID string,
+	_ string,
 	userHistory []model.WatchHistory,
 	limit int,
 ) ([]RecommendedMedia, error) {

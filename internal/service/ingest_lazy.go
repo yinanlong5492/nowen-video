@@ -723,7 +723,8 @@ func (s *LazyIngestService) resolveDestPath(targetRoot string, item *model.Renam
 			}
 		}
 		// 季号仍未知 -> 默认 Season 01（避免大量剧集进 _unsorted）
-		if item.SeasonNum <= 0 {
+		// 只有当集号也未识别时才默认季号为1（保留S00特别篇）
+		if item.SeasonNum <= 0 && item.EpisodeNum <= 0 {
 			item.SeasonNum = 1
 		}
 		if item.EpisodeNum <= 0 {

@@ -6,6 +6,8 @@ import {
   Tv,
   Layers,
   Video,
+  Music,
+  Headphones,
   FolderPlus,
   ChevronDown,
   ChevronUp,
@@ -56,6 +58,24 @@ const LIBRARY_TYPES = [
     color: '#10B981',
     bg: 'rgba(16, 185, 129, 0.08)',
     border: 'rgba(16, 185, 129, 0.2)',
+  },
+  {
+    value: 'music' as const,
+    label: '音乐库',
+    desc: '音乐、专辑等',
+    icon: Music,
+    color: 'var(--neon-pink)',
+    bg: 'var(--neon-pink-8)',
+    border: 'var(--neon-pink-20)',
+  },
+  {
+    value: 'audiobook' as const,
+    label: '有声书',
+    desc: '有声读物、播客等',
+    icon: Headphones,
+    color: '#8B5CF6',
+    bg: 'rgba(139, 92, 246, 0.08)',
+    border: 'rgba(139, 92, 246, 0.2)',
   },
 ]
 
@@ -439,31 +459,34 @@ export default function CreateLibraryModal({ open, onClose, onCreate }: CreateLi
 
               {showAdvanced && (
                 <div className="mt-4 space-y-6 animate-slide-up">
+                  {selectedType !== 'music' && (
+                    <>
+                      {/* ———— 1. 优先读取本地 NFO 和图片 ———— */}
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <h4
+                            className="text-sm font-semibold"
+                            style={{ color: 'var(--text-primary)' }}
+                          >
+                            优先读取本地 NFO 和图片
+                          </h4>
+                          <p
+                            className="mt-1 text-xs leading-relaxed"
+                            style={{ color: 'var(--text-tertiary)' }}
+                          >
+                            优先读取本地 NFO 文件中的信息和本地图片，仅从互联网上获取缺失的信息。
+                          </p>
+                        </div>
+                        <ToggleSwitch
+                          checked={advanced.prefer_local_nfo}
+                          onChange={(v) => updateAdvanced('prefer_local_nfo', v)}
+                        />
+                      </div>
 
-                  {/* ———— 1. 优先读取本地 NFO 和图片 ———— */}
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <h4
-                        className="text-sm font-semibold"
-                        style={{ color: 'var(--text-primary)' }}
-                      >
-                        优先读取本地 NFO 和图片
-                      </h4>
-                      <p
-                        className="mt-1 text-xs leading-relaxed"
-                        style={{ color: 'var(--text-tertiary)' }}
-                      >
-                        优先读取本地 NFO 文件中的信息和本地图片，仅从互联网上获取缺失的信息。
-                      </p>
-                    </div>
-                    <ToggleSwitch
-                      checked={advanced.prefer_local_nfo}
-                      onChange={(v) => updateAdvanced('prefer_local_nfo', v)}
-                    />
-                  </div>
-
-                  {/* 分割线 */}
-                  <div style={{ borderTop: '1px solid var(--border-default)' }} />
+                      {/* 分割线 */}
+                      <div style={{ borderTop: '1px solid var(--border-default)' }} />
+                    </>
+                  )}
 
                   {/* ———— 2. 文件过滤 ———— */}
                   <div>
@@ -519,159 +542,163 @@ export default function CreateLibraryModal({ open, onClose, onCreate }: CreateLi
                         className="text-sm"
                         style={{ color: 'var(--text-secondary)' }}
                       >
-                        MB 的视频文件
+                        MB 的文件
                       </span>
                     </div>
                   </div>
 
-                  {/* 分割线 */}
-                  <div style={{ borderTop: '1px solid var(--border-default)' }} />
+                  {selectedType !== 'music' && (
+                    <>
+                      {/* 分割线 */}
+                      <div style={{ borderTop: '1px solid var(--border-default)' }} />
 
-                  {/* ———— 3. 媒体元数据下载语言 ———— */}
-                  <div>
-                    <h4
-                      className="text-sm font-semibold"
-                      style={{ color: 'var(--text-primary)' }}
-                    >
-                      媒体元数据下载语言
-                    </h4>
-                    <p
-                      className="mt-1 mb-3 text-xs leading-relaxed"
-                      style={{ color: 'var(--text-tertiary)' }}
-                    >
-                      优先使用首选语言下载元数据，如影片信息、演员信息、海报等。
-                    </p>
-                    {/* 下拉选择框 */}
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() => setShowLangDropdown(!showLangDropdown)}
-                        className="input flex w-full items-center justify-between gap-2 text-left"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Globe size={16} style={{ color: 'var(--text-muted)' }} />
-                          <span style={{ color: 'var(--text-primary)' }}>{selectedLangLabel}</span>
-                        </div>
-                        <ChevronDown
-                          size={16}
-                          style={{ color: 'var(--text-muted)' }}
-                          className={`transition-transform ${showLangDropdown ? 'rotate-180' : ''}`}
-                        />
-                      </button>
-                      {showLangDropdown && (
-                        <>
-                          <div className="fixed inset-0 z-30" onClick={() => setShowLangDropdown(false)} />
-                          <div
-                            className="absolute left-0 right-0 top-full z-40 mt-1 overflow-hidden rounded-xl py-1 animate-slide-up"
-                            style={{
-                              background: 'var(--bg-elevated)',
-                              border: '1px solid var(--border-strong)',
-                              boxShadow: 'var(--shadow-elevated)',
-                            }}
-                          >
-                            {METADATA_LANG_OPTIONS.map((lang) => (
-                              <button
-                                key={lang.value}
-                                onClick={() => {
-                                  updateAdvanced('metadata_lang', lang.value)
-                                  setShowLangDropdown(false)
-                                }}
-                                className="w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-[var(--nav-hover-bg)]"
-                                style={{
-                                  color: advanced.metadata_lang === lang.value
-                                    ? 'var(--neon-blue)'
-                                    : 'var(--text-secondary)',
-                                  background: advanced.metadata_lang === lang.value
-                                    ? 'var(--nav-active-bg)'
-                                    : undefined,
-                                }}
-                              >
-                                {lang.label}
-                              </button>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* 分割线 */}
-                  <div style={{ borderTop: '1px solid var(--border-default)' }} />
-
-                  {/* ———— 4. 媒体元数据允许成人内容 ———— */}
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <h4
-                        className="text-sm font-semibold"
-                        style={{ color: 'var(--text-primary)' }}
-                      >
-                        媒体元数据允许成人内容
-                      </h4>
-                      <p
-                        className="mt-1 text-xs leading-relaxed"
-                        style={{ color: 'var(--text-tertiary)' }}
-                      >
-                        从第三方公开数据库搜索、下载元数据时，允许成人内容。成人内容判断依据为 TMDB 的成人标签。
-                      </p>
-                    </div>
-                    <ToggleSwitch
-                      checked={advanced.allow_adult_content}
-                      onChange={(v) => updateAdvanced('allow_adult_content', v)}
-                    />
-                  </div>
-
-                  {/* 分割线 */}
-                  <div style={{ borderTop: '1px solid var(--border-default)' }} />
-
-                  {/* ———— 5. 自动下载字幕 ———— */}
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <h4
-                        className="text-sm font-semibold"
-                        style={{ color: 'var(--text-primary)' }}
-                      >
-                        自动下载字幕
-                      </h4>
-                      <p
-                        className="mt-1 text-xs leading-relaxed"
-                        style={{ color: 'var(--text-tertiary)' }}
-                      >
-                        对未内嵌字幕的媒体文件，自动从互联网上下载字幕。
-                      </p>
-                    </div>
-                    <ToggleSwitch
-                      checked={advanced.auto_download_sub}
-                      onChange={(v) => updateAdvanced('auto_download_sub', v)}
-                    />
-                  </div>
-
-                  {/* 分割线 */}
-                  <div style={{ borderTop: '1px solid var(--border-default)' }} />
-
-                  {/* ———— 6. 扫描后自动刮削元数据 ———— */}
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <Search size={16} style={{ color: '#06B6D4' }} />
+                      {/* ———— 3. 媒体元数据下载语言 ———— */}
+                      <div>
                         <h4
                           className="text-sm font-semibold"
                           style={{ color: 'var(--text-primary)' }}
                         >
-                          扫描后自动刮削元数据
+                          媒体元数据下载语言
                         </h4>
+                        <p
+                          className="mt-1 mb-3 text-xs leading-relaxed"
+                          style={{ color: 'var(--text-tertiary)' }}
+                        >
+                          优先使用首选语言下载元数据，如影片信息、演员信息、海报等。
+                        </p>
+                        {/* 下拉选择框 */}
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setShowLangDropdown(!showLangDropdown)}
+                            className="input flex w-full items-center justify-between gap-2 text-left"
+                          >
+                            <div className="flex items-center gap-2">
+                              <Globe size={16} style={{ color: 'var(--text-muted)' }} />
+                              <span style={{ color: 'var(--text-primary)' }}>{selectedLangLabel}</span>
+                            </div>
+                            <ChevronDown
+                              size={16}
+                              style={{ color: 'var(--text-muted)' }}
+                              className={`transition-transform ${showLangDropdown ? 'rotate-180' : ''}`}
+                            />
+                          </button>
+                          {showLangDropdown && (
+                            <>
+                              <div className="fixed inset-0 z-30" onClick={() => setShowLangDropdown(false)} />
+                              <div
+                                className="absolute left-0 right-0 top-full z-40 mt-1 overflow-hidden rounded-xl py-1 animate-slide-up"
+                                style={{
+                                  background: 'var(--bg-elevated)',
+                                  border: '1px solid var(--border-strong)',
+                                  boxShadow: 'var(--shadow-elevated)',
+                                }}
+                              >
+                                {METADATA_LANG_OPTIONS.map((lang) => (
+                                  <button
+                                    key={lang.value}
+                                    onClick={() => {
+                                      updateAdvanced('metadata_lang', lang.value)
+                                      setShowLangDropdown(false)
+                                    }}
+                                    className="w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-[var(--nav-hover-bg)]"
+                                    style={{
+                                      color: advanced.metadata_lang === lang.value
+                                        ? 'var(--neon-blue)'
+                                        : 'var(--text-secondary)',
+                                      background: advanced.metadata_lang === lang.value
+                                        ? 'var(--nav-active-bg)'
+                                        : undefined,
+                                    }}
+                                  >
+                                    {lang.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <p
-                        className="mt-1 text-xs leading-relaxed"
-                        style={{ color: 'var(--text-tertiary)' }}
-                      >
-                        扫描媒体库后自动从 TMDb、豆瓣等数据源识别并下载影片信息（海报、简介、评分等）。关闭后需在媒体详情页手动触发刮削。
-                      </p>
-                    </div>
-                    <ToggleSwitch
-                      checked={advanced.auto_scrape_metadata}
-                      onChange={(v) => updateAdvanced('auto_scrape_metadata', v)}
-                    />
-                  </div>
+
+                      {/* 分割线 */}
+                      <div style={{ borderTop: '1px solid var(--border-default)' }} />
+
+                      {/* ———— 4. 媒体元数据允许成人内容 ———— */}
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <h4
+                            className="text-sm font-semibold"
+                            style={{ color: 'var(--text-primary)' }}
+                          >
+                            媒体元数据允许成人内容
+                          </h4>
+                          <p
+                            className="mt-1 text-xs leading-relaxed"
+                            style={{ color: 'var(--text-tertiary)' }}
+                          >
+                            从第三方公开数据库搜索、下载元数据时，允许成人内容。成人内容判断依据为 TMDB 的成人标签。
+                          </p>
+                        </div>
+                        <ToggleSwitch
+                          checked={advanced.allow_adult_content}
+                          onChange={(v) => updateAdvanced('allow_adult_content', v)}
+                        />
+                      </div>
+
+                      {/* 分割线 */}
+                      <div style={{ borderTop: '1px solid var(--border-default)' }} />
+
+                      {/* ———— 5. 自动下载字幕 ———— */}
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <h4
+                            className="text-sm font-semibold"
+                            style={{ color: 'var(--text-primary)' }}
+                          >
+                            自动下载字幕
+                          </h4>
+                          <p
+                            className="mt-1 text-xs leading-relaxed"
+                            style={{ color: 'var(--text-tertiary)' }}
+                          >
+                            对未内嵌字幕的媒体文件，自动从互联网上下载字幕。
+                          </p>
+                        </div>
+                        <ToggleSwitch
+                          checked={advanced.auto_download_sub}
+                          onChange={(v) => updateAdvanced('auto_download_sub', v)}
+                        />
+                      </div>
+
+                      {/* 分割线 */}
+                      <div style={{ borderTop: '1px solid var(--border-default)' }} />
+
+                      {/* ———— 6. 扫描后自动刮削元数据 ———— */}
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <Search size={16} style={{ color: '#06B6D4' }} />
+                            <h4
+                              className="text-sm font-semibold"
+                              style={{ color: 'var(--text-primary)' }}
+                            >
+                              扫描后自动刮削元数据
+                            </h4>
+                          </div>
+                          <p
+                            className="mt-1 text-xs leading-relaxed"
+                            style={{ color: 'var(--text-tertiary)' }}
+                          >
+                            扫描媒体库后自动从 TMDb、豆瓣等数据源识别并下载影片信息（海报、简介、评分等）。关闭后需在媒体详情页手动触发刮削。
+                          </p>
+                        </div>
+                        <ToggleSwitch
+                          checked={advanced.auto_scrape_metadata}
+                          onChange={(v) => updateAdvanced('auto_scrape_metadata', v)}
+                        />
+                      </div>
+                    </>
+                  )}
 
                   {/* 分割线 */}
                   <div style={{ borderTop: '1px solid var(--border-default)' }} />
@@ -680,7 +707,7 @@ export default function CreateLibraryModal({ open, onClose, onCreate }: CreateLi
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <Eye size={16} style={{ color: 'var(--neon-purple)' }} />
+                        <Eye size={16} style={{ color: selectedType === 'music' ? 'var(--neon-pink)' : 'var(--neon-purple)' }} />
                         <h4
                           className="text-sm font-semibold"
                           style={{ color: 'var(--text-primary)' }}

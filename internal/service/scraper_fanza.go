@@ -30,7 +30,6 @@ var (
 	fanzaActressLinkRe = regexp.MustCompile(`(?is)<a[^>]+href="/digital/videoa/-/list/=/article=actress/id=[^"]+"[^>]*>([^<]+)</a>`)
 	fanzaGenreLinkRe   = regexp.MustCompile(`(?is)<a[^>]+href="/digital/videoa/-/list/=/article=keyword/id=[^"]+"[^>]*>([^<]+)</a>`)
 	fanzaRatingRe      = regexp.MustCompile(`(?is)class="d-review__average"[^>]*>\s*([\d.]+)`)
-	fanzaContentIDRe   = regexp.MustCompile(`(?is)<td[^>]*>品番[:：]?</td>\s*<td[^>]*>([^<]+)</td>`)
 )
 
 // scrapeFanza 从 Fanza 刮削番号元数据

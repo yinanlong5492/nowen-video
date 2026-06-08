@@ -256,8 +256,13 @@ export default function PlayerPage() {
   // 返回逻辑：优先回退上一页，保留列表页的分页/筛选/滚动位置
   // 即 列表?page=2 → 详情 → 播放器 → 返回 → 回到详情 → 再返回 → 回到列表?page=2
   // 只有当没有来路时（外链/刷新直接打开播放器）才 fallback 到详情页/系列页
+  // 如果是剧集，返回时携带当前集数，让季详情页定位到正确的分段
   const handleBack = () => {
     if (hasHistoryOnMountRef.current) {
+      // 如果是剧集，尝试在历史状态中记录当前集数
+      if (media?.media_type === 'episode' && media.episode_num) {
+        window.history.replaceState({ ...window.history.state, episodeNum: media.episode_num }, '')
+      }
       navigate(-1)
       return
     }

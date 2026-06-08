@@ -46,7 +46,7 @@ function TreeNode({
   depth?: number
   scrollIntoView?: boolean
 }) {
-  const [expanded, setExpanded] = useState(depth < 1) // 默认展开第一层
+  const [expanded, setExpanded] = useState(false)
   const isSelected = selectedPath === node.path
   const hasChildren = node.children && node.children.length > 0
   const nodeRef = useRef<HTMLDivElement>(null)

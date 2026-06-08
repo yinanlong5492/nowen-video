@@ -129,7 +129,29 @@ func (s *NFOService) WriteTVShowNFO(dir string, series *model.Series) (string, e
 		return "", fmt.Errorf("写入 NFO 文件失败: %w", err)
 	}
 
-	s.logger.Debugf("剧集 NFO 写入成功: %s", nfoPath)
+	s.logger.Infof("剧集 NFO 写入成功: %s", nfoPath)
+	return nfoPath, nil
+}
+
+// WriteSeasonNFO 为剧集的某一季生成 season.nfo 文件（Emby/Jellyfin/Kodi 兼容）
+func (s *NFOService) WriteSeasonNFO(seasonDir string, seasonNum int, showTitle string, showYear int) (string, error) {
+	nfoPath := filepath.Join(seasonDir, "season.nfo")
+
+	if IsWebDAVPath(nfoPath) {
+		return "", fmt.Errorf("不支持向 webdav:// 路径写入 NFO 文件")
+	}
+
+	content := buildSeasonNFOXML(seasonNum, showTitle, showYear)
+
+	if err := os.MkdirAll(seasonDir, 0o755); err != nil {
+		return "", fmt.Errorf("创建 Season NFO 目录失败: %w", err)
+	}
+
+	if err := os.WriteFile(nfoPath, []byte(content), 0o644); err != nil {
+		return "", fmt.Errorf("写入 Season NFO 失败: %w", err)
+	}
+
+	s.logger.Debugf("Season NFO 写入成功: %s", nfoPath)
 	return nfoPath, nil
 }
 
@@ -172,11 +194,6 @@ func buildMediaNFOXML(media *model.Media, people []model.MediaPerson) string {
 	return buildMovieNFOXMLWithPeople(media, people)
 }
 
-// buildMovieNFOXML 构造标准电影 NFO XML
-func buildMovieNFOXML(media *model.Media) string {
-	return buildMovieNFOXMLWithPeople(media, nil)
-}
-
 func buildMovieNFOXMLWithPeople(media *model.Media, people []model.MediaPerson) string {
 	var sb strings.Builder
 	sb.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\n")
@@ -212,7 +229,9 @@ func buildMovieNFOXMLWithPeople(media *model.Media, people []model.MediaPerson) 
 
 	if media.Overview != "" {
 		// Plot 使用 CDATA 封装，避免 HTML 标签被转义
-		sb.WriteString("  <plot><![CDATA[" + cdataXML(media.Overview) + "]]></plot>\n")
+		sb.WriteString("  <plot><![CDATA[")
+		sb.WriteString(cdataXML(media.Overview))
+		sb.WriteString("]]></plot>\n")
 	}
 	// outline：优先用独立的 Outline，否则回退到 Overview
 	outline := media.Outline
@@ -220,10 +239,14 @@ func buildMovieNFOXMLWithPeople(media *model.Media, people []model.MediaPerson) 
 		outline = media.Overview
 	}
 	if outline != "" {
-		sb.WriteString("  <outline><![CDATA[" + cdataXML(outline) + "]]></outline>\n")
+		sb.WriteString("  <outline><![CDATA[")
+		sb.WriteString(cdataXML(outline))
+		sb.WriteString("]]></outline>\n")
 	}
 	if media.OriginalPlot != "" {
-		sb.WriteString("  <originalplot><![CDATA[" + cdataXML(media.OriginalPlot) + "]]></originalplot>\n")
+		sb.WriteString("  <originalplot><![CDATA[")
+		sb.WriteString(cdataXML(media.OriginalPlot))
+		sb.WriteString("]]></originalplot>\n")
 	}
 
 	if media.Tagline != "" {
@@ -360,8 +383,12 @@ func buildEpisodeNFOXML(media *model.Media, people []model.MediaPerson) string {
 	writeXMLField(&sb, "premiered", aired)
 
 	if media.Overview != "" {
-		sb.WriteString("  <plot><![CDATA[" + cdataXML(media.Overview) + "]]></plot>\n")
-		sb.WriteString("  <outline><![CDATA[" + cdataXML(media.Overview) + "]]></outline>\n")
+		sb.WriteString("  <plot><![CDATA[")
+		sb.WriteString(cdataXML(media.Overview))
+		sb.WriteString("]]></plot>\n")
+		sb.WriteString("  <outline><![CDATA[")
+		sb.WriteString(cdataXML(media.Overview))
+		sb.WriteString("]]></outline>\n")
 	}
 	if media.Rating > 0 {
 		writeXMLField(&sb, "rating", fmt.Sprintf("%.1f", media.Rating))
@@ -492,8 +519,12 @@ func buildAdultNFOXML(media *model.Media, meta *AdultMetadata) string {
 		plot = meta.Title
 	}
 	if plot != "" {
-		sb.WriteString("  <plot><![CDATA[" + plot + "]]></plot>\n")
-		sb.WriteString("  <outline><![CDATA[" + plot + "]]></outline>\n")
+		sb.WriteString("  <plot><![CDATA[")
+		sb.WriteString(plot)
+		sb.WriteString("]]></plot>\n")
+		sb.WriteString("  <outline><![CDATA[")
+		sb.WriteString(plot)
+		sb.WriteString("]]></outline>\n")
 	}
 
 	// 评分
@@ -537,9 +568,10 @@ func buildAdultNFOXML(media *model.Media, meta *AdultMetadata) string {
 
 	// 国家
 	country := "JP"
-	if numInfo.Mosaic == "国产" {
+	switch numInfo.Mosaic {
+	case "国产":
 		country = "CN"
-	} else if numInfo.Mosaic == "欧美" {
+	case "欧美":
 		country = "US"
 	}
 	writeXMLField(&sb, "country", country)
@@ -625,8 +657,12 @@ func buildTVShowNFOXML(series *model.Series) string {
 	}
 
 	if series.Overview != "" {
-		sb.WriteString("  <plot><![CDATA[" + series.Overview + "]]></plot>\n")
-		sb.WriteString("  <outline><![CDATA[" + series.Overview + "]]></outline>\n")
+		sb.WriteString("  <plot><![CDATA[")
+		sb.WriteString(series.Overview)
+		sb.WriteString("]]></plot>\n")
+		sb.WriteString("  <outline><![CDATA[")
+		sb.WriteString(series.Overview)
+		sb.WriteString("]]></outline>\n")
 	}
 
 	if series.Rating > 0 {
@@ -661,6 +697,25 @@ func buildTVShowNFOXML(series *model.Series) string {
 	sb.WriteString(fmt.Sprintf("  <dateadded>%s</dateadded>\n", time.Now().Format("2006-01-02 15:04:05")))
 
 	sb.WriteString("</tvshow>\n")
+	return sb.String()
+}
+
+// buildSeasonNFOXML 构造剧集 Season NFO XML
+func buildSeasonNFOXML(seasonNum int, showTitle string, showYear int) string {
+	var sb strings.Builder
+	sb.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\n")
+	sb.WriteString("<season>\n")
+
+	writeXMLField(&sb, "seasonnumber", fmt.Sprintf("%d", seasonNum))
+	writeXMLField(&sb, "showtitle", showTitle)
+	if seasonNum > 0 {
+		writeXMLField(&sb, "title", fmt.Sprintf("Season %d", seasonNum))
+	}
+	if showYear > 0 {
+		writeXMLField(&sb, "year", fmt.Sprintf("%d", showYear))
+	}
+
+	sb.WriteString("</season>\n")
 	return sb.String()
 }
 

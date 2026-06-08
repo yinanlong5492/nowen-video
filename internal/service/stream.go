@@ -138,11 +138,6 @@ func (s *StreamService) OpenMediaFile(p string) (VFSFile, error) {
 	return &localFile{File: f}, nil
 }
 
-// openMediaFile 打开媒体文件（支持 WebDAV）
-func (s *StreamService) openMediaFile(p string) (VFSFile, error) {
-	return s.OpenMediaFile(p)
-}
-
 // SetPreprocessService 注入预处理服务（延迟注入，避免循环依赖）
 func (s *StreamService) SetPreprocessService(ps *PreprocessService) {
 	s.preprocess = ps
@@ -428,10 +423,34 @@ func (s *StreamService) GetPosterPath(mediaID string) (string, error) {
 		return "", ErrMediaNotFound
 	}
 
+	// 剧集：优先检测本地集缩略图 {视频名}-thumb.jpg
+	if media.MediaType == "episode" && media.FilePath != "" {
+		dir := vfsDir(media.FilePath)
+		base := strings.TrimSuffix(filepath.Base(media.FilePath), filepath.Ext(media.FilePath))
+		thumbExts := []string{".jpg", ".jpeg", ".png", ".webp"}
+		for _, ext := range thumbExts {
+			candidate := vfsJoinPath(dir, base+"-thumb"+ext)
+			if _, statErr := s.statMediaFile(candidate); statErr == nil {
+				return candidate, nil
+			}
+		}
+	}
+
 	// 优先查找媒体自身的海报路径
 	if media.PosterPath != "" {
-		if _, err := s.statMediaFile(media.PosterPath); err == nil {
-			return media.PosterPath, nil
+		// 对于剧集，跳过通用海报名（poster/cover/folder），
+		// 因为这些是季级别的图片，不应作为单集海报显示
+		if media.MediaType == "episode" {
+			base := strings.TrimSuffix(filepath.Base(media.PosterPath), filepath.Ext(media.PosterPath))
+			if base != "poster" && base != "cover" && base != "folder" {
+				if _, err := s.statMediaFile(media.PosterPath); err == nil {
+					return media.PosterPath, nil
+				}
+			}
+		} else {
+			if _, err := s.statMediaFile(media.PosterPath); err == nil {
+				return media.PosterPath, nil
+			}
 		}
 	}
 
@@ -441,10 +460,13 @@ func (s *StreamService) GetPosterPath(mediaID string) (string, error) {
 
 	posterExts := []string{".jpg", ".jpeg", ".png", ".webp"}
 	posterNames := []string{
-		base,     // 同名
-		"poster", // poster.jpg
-		"cover",  // cover.jpg
-		"folder", // folder.jpg
+		base,             // 同名
+		base + "-poster", // 同名海报
+		base + "-cover",  // 同名封面
+	}
+	// 非剧集媒体才匹配通用海报名，避免剧集匹配到同目录下的季海报
+	if media.MediaType != "episode" {
+		posterNames = append(posterNames, "poster", "cover", "folder")
 	}
 
 	for _, name := range posterNames {
@@ -456,27 +478,80 @@ func (s *StreamService) GetPosterPath(mediaID string) (string, error) {
 		}
 	}
 
-	// Fallback：如果是剧集（episode）且自身没有海报，尝试使用所属 Series 的海报
+	return "", nil
+}
+
+// GetLogoPath 获取电影Logo/标题图路径
+func (s *StreamService) GetLogoPath(mediaID string) (string, error) {
+	media, err := s.mediaRepo.FindByID(mediaID)
+	if err != nil {
+		return "", ErrMediaNotFound
+	}
+
+	// 优先使用数据库中的 logo_path
+	if media.LogoPath != "" {
+		if _, err := s.statMediaFile(media.LogoPath); err == nil {
+			return media.LogoPath, nil
+		}
+	}
+
+	// 查找同目录下的 logo 文件
+	dir := vfsDir(media.FilePath)
+	base := strings.TrimSuffix(filepath.Base(media.FilePath), filepath.Ext(media.FilePath))
+
+	logoExts := []string{".png", ".jpg", ".jpeg", ".webp", ".svg"}
+	logoNames := []string{
+		base + "-logo", // 同名-logo
+		"logo",         // logo.png
+		"clearlogo",    // clearlogo.png (Kodi/Emby 风格)
+	}
+
+	for _, name := range logoNames {
+		for _, ext := range logoExts {
+			candidate := vfsJoinPath(dir, name+ext)
+			if _, err := s.statMediaFile(candidate); err == nil {
+				return candidate, nil
+			}
+		}
+	}
+
+	return "", nil
+}
+
+// GetBackdropPath 获取电影/媒体背景图路径
+func (s *StreamService) GetBackdropPath(mediaID string) (string, error) {
+	media, err := s.mediaRepo.FindByID(mediaID)
+	if err != nil {
+		return "", ErrMediaNotFound
+	}
+
+	// 优先使用数据库中的 backdrop_path
+	if media.BackdropPath != "" {
+		if _, err := s.statMediaFile(media.BackdropPath); err == nil {
+			return media.BackdropPath, nil
+		}
+	}
+
+	// 查找同目录下的背景图文件
+	dir := vfsDir(media.FilePath)
+	imgExts := []string{".jpg", ".jpeg", ".png", ".webp"}
+	backdropNames := []string{"backdrop", "fanart", "landscape"}
+
+	for _, name := range backdropNames {
+		for _, ext := range imgExts {
+			candidate := vfsJoinPath(dir, name+ext)
+			if _, err := s.statMediaFile(candidate); err == nil {
+				return candidate, nil
+			}
+		}
+	}
+
+	// Fallback：如果是剧集且自身没有背景图，尝试使用所属 Series 的背景图
 	if media.SeriesID != "" && s.seriesRepo != nil {
 		series, err := s.seriesRepo.FindByIDOnly(media.SeriesID)
-		if err == nil {
-			// 检查 Series 数据库中的海报路径
-			if series.PosterPath != "" {
-				if _, err := s.statMediaFile(series.PosterPath); err == nil {
-					return series.PosterPath, nil
-				}
-			}
-			// 查找 Series 根目录下的海报文件
-			if series.FolderPath != "" {
-				seriesPosterNames := []string{"poster", "cover", "folder", "show"}
-				for _, name := range seriesPosterNames {
-					for _, ext := range posterExts {
-						candidate := vfsJoinPath(series.FolderPath, name+ext)
-						if _, err := s.statMediaFile(candidate); err == nil {
-							return candidate, nil
-						}
-					}
-				}
+		if err == nil && series.BackdropPath != "" {
+			if _, err := s.statMediaFile(series.BackdropPath); err == nil {
+				return series.BackdropPath, nil
 			}
 		}
 	}
@@ -572,7 +647,8 @@ func (s *StreamService) GetMasterPlaylistFiltered(mediaID string, maxBitrate int
 		if hasMultiAudio {
 			streamInf += `,AUDIO="audio"`
 		}
-		builder.WriteString(streamInf + "\n")
+		builder.WriteString(streamInf)
+		builder.WriteString("\n")
 		builder.WriteString(fmt.Sprintf("/api/stream/%s/%s/stream.m3u8\n", mediaID, q))
 	}
 
@@ -829,11 +905,9 @@ func (s *StreamService) proxyRemoteStreamWithHeaders(remoteURL, cookie string, w
 	}
 
 	// 注入自定义 Header
-	if extra != nil {
-		for k, vs := range extra {
-			for _, v := range vs {
-				req.Header.Add(k, v)
-			}
+	for k, vs := range extra {
+		for _, v := range vs {
+			req.Header.Add(k, v)
 		}
 	}
 	if cookie != "" && req.Header.Get("Cookie") == "" {

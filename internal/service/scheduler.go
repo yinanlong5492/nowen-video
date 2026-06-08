@@ -235,7 +235,7 @@ func (s *SchedulerService) executeScrapeTask(task *model.ScheduledTask) error {
 //   - failed/cancelled 状态超过 7 天 → 删除残留文件 + DB 记录
 //
 // 清理只影响已完成/失败的任务，正在运行的任务不会被触碰。
-func (s *SchedulerService) executeCleanupTask(task *model.ScheduledTask) error {
+func (s *SchedulerService) executeCleanupTask(_ *model.ScheduledTask) error {
 	s.logger.Info("开始执行缓存清理任务")
 
 	if s.transcodeService == nil {

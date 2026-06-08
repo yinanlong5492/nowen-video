@@ -1390,39 +1390,4 @@ func (s *SubtitlePreprocessService) recoverPendingTasks() {
 	}
 }
 
-// pendingReconciler 定期扫描 pending 任务重新入队，防止因 jobQueue 容量满导致永久卡住
-func (s *SubtitlePreprocessService) pendingReconciler() {
-	time.Sleep(30 * time.Second)
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
 
-	for range ticker.C {
-		// 队列较空时才推新任务
-		if len(s.jobQueue) >= cap(s.jobQueue)/2 {
-			continue
-		}
-
-		tasks, err := s.repo.ListPending(200)
-		if err != nil {
-			continue
-		}
-
-		enqueued := 0
-		for _, task := range tasks {
-			// 跳过已在队列中的
-			if _, ok := s.inQueueIDs.Load(task.ID); ok {
-				continue
-			}
-			select {
-			case s.jobQueue <- task.ID:
-				s.inQueueIDs.Store(task.ID, true)
-				enqueued++
-			default:
-				return
-			}
-		}
-		if enqueued > 0 {
-			s.logger.Infof("pending reconciler 重新入队 %d 个字幕预处理任务", enqueued)
-		}
-	}
-}

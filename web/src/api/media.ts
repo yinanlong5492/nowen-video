@@ -69,8 +69,8 @@ export const mediaApi = {
       size: number
     }>('/search/mixed', { params: { q, page, size } }),
 
-  scrape: (id: string) =>
-    api.post(`/media/${id}/scrape`),
+  scrape: (id: string, replaceImages?: boolean, mode?: string) =>
+    api.post(`/media/${id}/scrape`, { replace_images: !!replaceImages, mode: mode || '' }),
 }
 
 // ==================== 演员 ====================

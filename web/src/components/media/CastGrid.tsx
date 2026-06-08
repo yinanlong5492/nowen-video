@@ -1,8 +1,8 @@
-import { useState, useCallback, useMemo, useRef } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { streamApi } from '@/api'
 import type { MediaPerson } from '@/types'
-import { User, Film } from 'lucide-react'
+import { User, Film, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useTranslation } from '@/i18n'
 
 interface CastGridProps {
@@ -19,6 +19,9 @@ function useRoleLabel() {
       director: t('castGrid.roleDirector'),
       actor: t('castGrid.roleActor'),
       writer: t('castGrid.roleWriter'),
+      producer: t('castGrid.roleProducer'),
+      composer: t('castGrid.roleComposer'),
+      cinematographer: t('castGrid.roleCinematographer'),
     }
     return map[role] || role
   }
@@ -28,12 +31,43 @@ const rolePriority: Record<string, number> = {
   director: 0,
   writer: 1,
   actor: 2,
+  producer: 3,
+  composer: 4,
+  cinematographer: 5,
+}
+
+const roleBadgeColors: Record<string, string> = {
+  director: '#FBBF24',
+  writer: '#93C5FD',
+  producer: '#F472B6',
+  composer: '#A78BFA',
+  cinematographer: '#34D399',
+}
+
+function getRoleBadgeColor(role: string): string {
+  return roleBadgeColors[role] || '#93C5FD'
 }
 
 export default function CastGrid({ persons }: CastGridProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const [canScrollLeft, setCanScrollLeft] = useState(false)
+  const [canScrollRight, setCanScrollRight] = useState(false)
+
+  const updateScrollState = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    setCanScrollLeft(el.scrollLeft > 1)
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
+  }, [])
+
+  const scroll = useCallback((direction: 'left' | 'right') => {
+    const el = scrollRef.current
+    if (!el) return
+    const scrollAmount = 300
+    el.scrollBy({ left: direction === 'left' ? -scrollAmount : scrollAmount, behavior: 'smooth' })
+  }, [])
 
   // 去重：相同 person_id + role 只保留第一条（兜底，后端合并时已去重）
   const dedupedPersons = useMemo(() => {
@@ -56,14 +90,17 @@ export default function CastGrid({ persons }: CastGridProps) {
     })
   }, [dedupedPersons])
 
+  // 初始化滚动状态
+  useEffect(() => {
+    updateScrollState()
+  }, [sortedPersons, updateScrollState])
+
   // 点击演员头像 → 跳转到独立的演员详情页
   const handleCardClick = useCallback((person: MediaPerson) => {
     if (person.person_id) {
       navigate(`/person/${person.person_id}`)
     }
   }, [navigate])
-
-  if (dedupedPersons.length === 0) return null
 
   return (
     <section>
@@ -79,19 +116,67 @@ export default function CastGrid({ persons }: CastGridProps) {
         </span>
       </h3>
 
-      {/* 横向滚动布局 */}
-      <div
-        ref={scrollRef}
-        className="flex gap-3 overflow-x-auto pb-2"
-        style={{
-          scrollbarWidth: 'thin',
-          scrollbarColor: 'var(--border-strong) transparent',
-        }}
-      >
-        {sortedPersons.map((mp) => (
-          <CastCard key={mp.id} mediaPerson={mp} onClick={handleCardClick} />
-        ))}
-      </div>
+      {/* 空状态占位符 */}
+      {dedupedPersons.length === 0 ? (
+        <div
+          className="flex flex-col items-center justify-center py-8 rounded-xl"
+          style={{ background: 'var(--bg-subtle)' }}
+        >
+          <User size={40} className="mb-3 opacity-40" style={{ color: 'var(--text-muted)' }} />
+          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+            {t('castGrid.empty') || '暂无演职人员信息'}
+          </p>
+          <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+            {t('castGrid.emptyHint') || '可尝试刷新元数据获取'}
+          </p>
+        </div>
+      ) : (
+        /* 横向滚动布局 + 左右滚动按钮 */
+        <div className="relative">
+          {/* 左滚动按钮 */}
+          {canScrollLeft && (
+            <button
+              onClick={() => scroll('left')}
+              className="absolute -left-1 top-1/2 z-10 -translate-y-1/2 rounded-full p-1.5 shadow-lg transition-all hover:scale-110"
+              style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-default)',
+                color: 'var(--text-primary)',
+              }}
+              aria-label="向左滚动"
+            >
+              <ChevronLeft size={16} />
+            </button>
+          )}
+          {/* 右滚动按钮 */}
+          {canScrollRight && (
+            <button
+              onClick={() => scroll('right')}
+              className="absolute -right-1 top-1/2 z-10 -translate-y-1/2 rounded-full p-1.5 shadow-lg transition-all hover:scale-110"
+              style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-default)',
+                color: 'var(--text-primary)',
+              }}
+              aria-label="向右滚动"
+            >
+              <ChevronRight size={16} />
+            </button>
+          )}
+          <div
+            ref={scrollRef}
+            onScroll={updateScrollState}
+            className="flex gap-10 overflow-x-auto pb-2"
+            style={{
+              scrollbarWidth: 'none',
+            }}
+          >
+            {sortedPersons.map((mp) => (
+              <CastCard key={mp.id} mediaPerson={mp} onClick={handleCardClick} />
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   )
 }
@@ -114,16 +199,15 @@ function CastCard({
   return (
     <button
       onClick={() => onClick(mediaPerson)}
-      className="group flex w-24 flex-shrink-0 flex-col items-center gap-2 rounded-xl p-2 transition-all duration-300 hover:scale-[1.03] sm:w-28"
-      style={{
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border-default)',
-      }}
+      className="group flex w-20 flex-shrink-0 flex-col items-center gap-2 transition-all duration-300 hover:scale-[1.05] sm:w-24"
     >
-      {/* 头像 */}
+      {/* 圆形头像 */}
       <div
-        className="relative aspect-square w-full overflow-hidden rounded-lg"
-        style={{ background: 'var(--bg-surface)' }}
+        className="relative aspect-square w-full overflow-hidden rounded-full"
+        style={{
+          background: 'var(--bg-surface)',
+          border: '2px solid var(--border-default)',
+        }}
       >
         {profileSrc && !imgError ? (
           <img
@@ -135,24 +219,24 @@ function CastCard({
           />
         ) : (
           <div
-            className="flex h-full w-full items-center justify-center"
+            className="flex h-full w-full items-center justify-center rounded-full"
             style={{
               background: 'linear-gradient(135deg, var(--neon-blue-4), var(--neon-purple-4, var(--neon-blue-8)))',
               color: 'var(--text-muted)',
             }}
           >
-            <User size={32} strokeWidth={1.5} />
+            <User size={28} strokeWidth={1.5} />
           </div>
         )}
 
         {/* 角色类型标签 */}
         {mediaPerson.role && mediaPerson.role !== 'actor' && (
           <div
-            className="absolute left-1 top-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase"
+            className="absolute bottom-0 left-1/2 -translate-x-1/2 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase whitespace-nowrap"
             style={{
-              background: 'rgba(0, 0, 0, 0.7)',
+              background: 'rgba(0, 0, 0, 0.75)',
               backdropFilter: 'blur(4px)',
-              color: mediaPerson.role === 'director' ? '#FBBF24' : '#93C5FD',
+              color: getRoleBadgeColor(mediaPerson.role),
             }}
           >
             {getRoleLabel(mediaPerson.role)}

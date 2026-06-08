@@ -192,19 +192,18 @@ func (c *ProviderChain) ScrapeMedia(media *model.Media, searchTitle string, year
 	var primaryErr error
 	primaryDone := false
 	providerCallCount := 0
+	enabledCount := c.countEnabledApplicable(media.MediaType, isAnime, isTVShow)
 
 	for _, provider := range c.providers {
 		if !provider.IsEnabled() {
 			continue
 		}
 
-		// 检查数据源是否支持当前媒体类型
 		if !c.isProviderApplicable(provider, media.MediaType, isAnime, isTVShow) {
 			continue
 		}
 
-		// 数据源调用之间添加随机延迟（首次调用不延迟）
-		if providerCallCount > 0 {
+		if enabledCount > 1 && providerCallCount > 0 {
 			randomDelay(2000, 4000)
 		}
 		providerCallCount++
@@ -231,7 +230,6 @@ func (c *ProviderChain) ScrapeMedia(media *model.Media, searchTitle string, year
 
 		c.logger.Debugf("数据源 [%s] 刮削成功: %s", provider.Name(), searchTitle)
 
-		// 检查信息是否已经足够完整，如果完整则跳过后续补充源
 		if c.isMetadataComplete(media) {
 			break
 		}
@@ -244,6 +242,50 @@ func (c *ProviderChain) ScrapeMedia(media *model.Media, searchTitle string, year
 	return nil
 }
 
+// ScrapeMediaSupplements 在已通过 TMDb ID 直连完成主刮削后，运行补充源
+// 跳过第一个启用的数据源（TMDb），仅运行 Douban/Bangumi/Fanart/AI 等补充源
+func (c *ProviderChain) ScrapeMediaSupplements(media *model.Media, searchTitle string, year int) {
+	isAnime := IsAnimeContent(media)
+	isTVShow := media.MediaType == "episode" || media.SeriesID != ""
+
+	skippedFirst := false
+	providerCallCount := 0
+	enabledCount := c.countEnabledApplicable(media.MediaType, isAnime, isTVShow)
+
+	for _, provider := range c.providers {
+		if !provider.IsEnabled() {
+			continue
+		}
+
+		if !c.isProviderApplicable(provider, media.MediaType, isAnime, isTVShow) {
+			continue
+		}
+
+		if !skippedFirst {
+			skippedFirst = true
+			continue
+		}
+
+		if enabledCount > 1 && providerCallCount > 0 {
+			randomDelay(2000, 4000)
+		}
+		providerCallCount++
+
+		c.logger.Debugf("补充数据源 [%s] 刮削: %s", provider.Name(), searchTitle)
+
+		if err := provider.ScrapeMedia(media, searchTitle, year, "supplement"); err != nil {
+			c.logger.Debugf("补充数据源 [%s] 刮削失败: %v", provider.Name(), err)
+			continue
+		}
+
+		c.logger.Debugf("补充数据源 [%s] 刮削成功: %s", provider.Name(), searchTitle)
+
+		if c.isMetadataComplete(media) {
+			break
+		}
+	}
+}
+
 // ScrapeSeries 按优先级链式刮削剧集合集元数据
 func (c *ProviderChain) ScrapeSeries(series *model.Series, searchTitle string, year int) error {
 	isAnime := IsAnimeContentFromSeries(series)
@@ -251,19 +293,18 @@ func (c *ProviderChain) ScrapeSeries(series *model.Series, searchTitle string, y
 	var primaryErr error
 	primaryDone := false
 	providerCallCount := 0
+	enabledCount := c.countEnabledApplicable("tvshow", isAnime, true)
 
 	for _, provider := range c.providers {
 		if !provider.IsEnabled() {
 			continue
 		}
 
-		// 检查数据源是否支持剧集类型
 		if !c.isProviderApplicable(provider, "tvshow", isAnime, true) {
 			continue
 		}
 
-		// 数据源调用之间添加随机延迟（首次调用不延迟）
-		if providerCallCount > 0 {
+		if enabledCount > 1 && providerCallCount > 0 {
 			randomDelay(2000, 4000)
 		}
 		providerCallCount++
@@ -323,15 +364,24 @@ func (c *ProviderChain) isProviderApplicable(provider MetadataProvider, mediaTyp
 				return true
 			}
 		case "image":
-			// 图片增强源，始终适用
 			return true
 		case "adult":
-			// 成人内容源，始终适用（Provider 内部会自行判断是否为成人内容）
 			return true
 		}
 	}
 
 	return false
+}
+
+// countEnabledApplicable 统计当前上下文中启用的适用数据源数量
+func (c *ProviderChain) countEnabledApplicable(mediaType string, isAnime, isTVShow bool) int {
+	count := 0
+	for _, provider := range c.providers {
+		if provider.IsEnabled() && c.isProviderApplicable(provider, mediaType, isAnime, isTVShow) {
+			count++
+		}
+	}
+	return count
 }
 
 // isMetadataComplete 检查媒体元数据是否足够完整
@@ -418,7 +468,9 @@ func NewTMDbProvider(metadata *MetadataService) *TMDbProvider {
 }
 
 func (p *TMDbProvider) Name() string             { return "TMDb" }
-func (p *TMDbProvider) IsEnabled() bool          { return p.metadata.cfg.Secrets.TMDbAPIKey != "" }
+func (p *TMDbProvider) IsEnabled() bool {
+	return p.metadata.cfg.Secrets.TMDbScraperEnabled && p.metadata.cfg.Secrets.TMDbAPIKey != ""
+}
 func (p *TMDbProvider) Priority() int            { return 10 }
 func (p *TMDbProvider) SupportedTypes() []string { return []string{"all"} }
 
@@ -492,33 +544,48 @@ func (p *TMDbProvider) ScrapeSeries(series *model.Series, searchTitle string, ye
 
 	// 下载海报
 	if best.PosterPath != "" && (mode == "primary" || series.PosterPath == "") {
-		imageURL := fmt.Sprintf("%s/t/p/w500%s", p.metadata.getTMDbImageBase(), best.PosterPath)
 		ext := ".jpg"
 		cacheDir := fmt.Sprintf("%s/images/series/%s", p.metadata.cfg.Cache.CacheDir, series.ID)
 		localPath := cacheDir + "/poster" + ext
-		if err := mkdirAndDownload(p.metadata, imageURL, cacheDir, localPath); err == nil {
+		if err := mkdirAndDownload(p.metadata, p.metadata.buildTMDbImageURLs(best.PosterPath, "w500"), cacheDir, localPath); err == nil {
 			series.PosterPath = localPath
 		}
 	}
 
-	// 下载背景图
 	if best.BackdropPath != "" && (mode == "primary" || series.BackdropPath == "") {
-		imageURL := fmt.Sprintf("%s/t/p/w1280%s", p.metadata.getTMDbImageBase(), best.BackdropPath)
 		ext := ".jpg"
 		cacheDir := fmt.Sprintf("%s/images/series/%s", p.metadata.cfg.Cache.CacheDir, series.ID)
 		localPath := cacheDir + "/backdrop" + ext
-		if err := mkdirAndDownload(p.metadata, imageURL, cacheDir, localPath); err == nil {
+		if err := mkdirAndDownload(p.metadata, p.metadata.buildTMDbImageURLs(best.BackdropPath, "w1280"), cacheDir, localPath); err == nil {
 			series.BackdropPath = localPath
+		}
+	}
+
+	// 下载季海报（TMDb）
+	if mode == "primary" || mode == "supplement" {
+		if err := p.metadata.DownloadSeasonPostersFromTMDb(series, best.ID); err != nil {
+			p.metadata.logger.Warnf("下载 TMDb 季海报失败: %v", err)
 		}
 	}
 
 	return nil
 }
 
-// mkdirAndDownload 创建目录并下载文件
-func mkdirAndDownload(metadata *MetadataService, imageURL, dir, filePath string) error {
+func mkdirAndDownload(metadata *MetadataService, imageURLs []string, dir, filePath string) error {
 	os.MkdirAll(dir, 0755)
-	return metadata.downloadToFile(imageURL, filePath)
+	var lastErr error
+	for i, imageURL := range imageURLs {
+		if i > 0 {
+			metadata.logger.Debugf("回退备选URL下载: %s", imageURL)
+		}
+		err := metadata.downloadToFile(imageURL, filePath)
+		if err == nil {
+			return nil
+		}
+		metadata.logger.Debugf("下载失败(%d/%d): %s - %v", i+1, len(imageURLs), imageURL, err)
+		lastErr = err
+	}
+	return lastErr
 }
 
 // DoubanProvider 豆瓣数据源适配器
@@ -531,7 +598,9 @@ func NewDoubanProvider(douban *DoubanService) *DoubanProvider {
 }
 
 func (p *DoubanProvider) Name() string             { return "豆瓣" }
-func (p *DoubanProvider) IsEnabled() bool          { return true } // 豆瓣不需要 API Key
+func (p *DoubanProvider) IsEnabled() bool {
+	return p.douban.cfg.Secrets.DoubanScraperEnabled
+}
 func (p *DoubanProvider) Priority() int            { return 20 }
 func (p *DoubanProvider) SupportedTypes() []string { return []string{"all"} }
 

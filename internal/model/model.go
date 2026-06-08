@@ -100,7 +100,7 @@ type Library struct {
 	// ExtraPaths 额外媒体文件夹列表（JSON 数组），用于支持多个目录
 	// 对外字段名为 extra_paths；聚合后的完整路径列表请使用 AllPaths()
 	ExtraPaths string     `json:"extra_paths" gorm:"type:text"`
-	Type       string     `json:"type" gorm:"type:text;default:movie"` // movie / tvshow / mixed / other
+	Type       string     `json:"type" gorm:"type:text;default:movie"` // movie / tvshow / mixed / other / music / audiobook
 	LastScan   *time.Time `json:"last_scan"`
 	// 高级设置
 	PreferLocalNFO    bool   `json:"prefer_local_nfo" gorm:"default:true"`         // 优先读取本地NFO和图片
@@ -182,6 +182,7 @@ type Series struct {
 	Overview     string  `json:"overview" gorm:"type:text"`
 	PosterPath   string  `json:"poster_path" gorm:"type:text"`
 	BackdropPath string  `json:"backdrop_path" gorm:"type:text"`
+	LogoPath     string  `json:"logo_path" gorm:"type:text"`           // Logo/标题图路径
 	Rating       float64 `json:"rating"`
 	Genres       string  `json:"genres" gorm:"type:text"`
 	FolderPath   string  `json:"folder_path" gorm:"uniqueIndex;type:text;not null"` // 剧集根目录路径
@@ -248,12 +249,44 @@ type Media struct {
 	Overview     string  `json:"overview" gorm:"type:text"`
 	PosterPath   string  `json:"poster_path" gorm:"type:text"`   // 海报图片路径
 	BackdropPath string  `json:"backdrop_path" gorm:"type:text"` // 背景图路径
+	LandscapePath string `json:"landscape_path" gorm:"type:text"` // 横向缩略图路径
+	LogoPath     string  `json:"logo_path" gorm:"type:text"`     // 电影Logo/标题图路径
+	FolderPath   string  `json:"folder_path" gorm:"type:text"`   // 文件夹封面路径
 	Rating       float64 `json:"rating"`
 	Runtime      int     `json:"runtime"`                             // 时长（分钟）
 	Genres       string  `json:"genres" gorm:"type:text"`             // 逗号分隔的类型
 	FilePath     string  `json:"file_path" gorm:"type:text;not null"` // 视频文件绝对路径
 	FileSize     int64   `json:"file_size"`
-	MediaType    string  `json:"media_type" gorm:"type:text;default:movie"` // movie / episode
+	MediaType    string  `json:"media_type" gorm:"type:text;default:movie"` // movie / episode / music
+	// 音乐相关字段
+	Artist         string  `json:"artist" gorm:"type:text"`
+	ArtistGroup    string  `json:"artist_group" gorm:"type:text"`
+	Band           string  `json:"band" gorm:"type:text"`
+	AlbumArtist    string  `json:"album_artist" gorm:"type:text"`
+	Album          string  `json:"album" gorm:"type:text"`
+	Genre          string  `json:"genre" gorm:"type:text"`
+	TrackNum       int     `json:"track_num"`
+	DiscNum        int     `json:"disc_num"`
+	MusicLanguage  string  `json:"music_language" gorm:"type:text"`
+	Composer       string  `json:"composer" gorm:"type:text"`
+	Lyricist       string  `json:"lyricist" gorm:"type:text"`
+	Arranger       string  `json:"arranger" gorm:"type:text"`
+	OriginalSinger string  `json:"original_singer" gorm:"type:text"`
+	RecordLabel    string  `json:"record_label" gorm:"type:text"`
+	AlbumReleaseDate string `json:"album_release_date" gorm:"type:text"`
+	AlbumType      string  `json:"album_type" gorm:"type:text"`
+	Key            string  `json:"key" gorm:"type:text"`
+	ISRC           string  `json:"isrc" gorm:"type:text"`
+	IsOST          bool    `json:"is_ost" gorm:"default:false"`
+	PlayCount      int     `json:"play_count" gorm:"default:0"`
+	LastPlayTime   *time.Time `json:"last_play_time"`
+	Loved          bool    `json:"loved" gorm:"default:false"`
+	Alias          string  `json:"alias" gorm:"type:text"`
+	FileName       string  `json:"file_name" gorm:"type:text"`
+	FolderLevel    int     `json:"folder_level"`
+	Notes          string  `json:"notes" gorm:"type:text"`
+	LyricsPath     string  `json:"lyrics_path" gorm:"type:text"`
+	LyricsText     string  `json:"lyrics_text" gorm:"type:text"`
 	// 视频信息
 	VideoCodec string  `json:"video_codec" gorm:"type:text"`
 	AudioCodec string  `json:"audio_codec" gorm:"type:text"`
@@ -360,7 +393,7 @@ type Person struct {
 	Name       string `json:"name" gorm:"index;type:text;not null"`
 	OrigName   string `json:"orig_name" gorm:"type:text"`
 	ProfileURL string `json:"profile_url" gorm:"type:text"` // 头像路径
-	TMDbID     int    `json:"tmdb_id" gorm:"index"`
+	TMDbID     int    `json:"tmdb_id" gorm:"uniqueIndex"`
 	// 时间戳
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -784,8 +817,70 @@ func (l *FileOperationLog) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
+// CleanupDuplicatePersons 清理重复的 Person 记录（相同 TMDbID），
+// 保留数据最完整的记录，将 media_people 关联指向保留下来的记录
+func CleanupDuplicatePersons(db *gorm.DB) {
+	type dupGroup struct {
+		TMDbID int
+		Count  int
+	}
+	var dups []dupGroup
+	db.Raw(`SELECT tmdb_id, COUNT(*) as count FROM people WHERE tmdb_id > 0 GROUP BY tmdb_id HAVING count > 1`).Scan(&dups)
+
+	if len(dups) == 0 {
+		return
+	}
+
+	for _, d := range dups {
+		var persons []Person
+		db.Where("tmdb_id = ?", d.TMDbID).Find(&persons)
+		if len(persons) < 2 {
+			continue
+		}
+
+		// 选数据最完整的保留：优先有 ProfileURL，其次有 Name
+		keep := persons[0]
+		for i := 1; i < len(persons); i++ {
+			cur, prev := persons[i], keep
+			curScore := scorePerson(&cur)
+			prevScore := scorePerson(&prev)
+			if curScore > prevScore {
+				keep = cur
+			}
+		}
+
+		for _, dup := range persons {
+			if dup.ID == keep.ID {
+				continue
+			}
+			// 将所有 media_people 关联指向保留的记录
+			db.Model(&MediaPerson{}).Where("person_id = ?", dup.ID).Update("person_id", keep.ID)
+			// 删除重复记录
+			db.Delete(&dup)
+		}
+	}
+}
+
+// scorePerson 给 Person 记录打分（ProfileURL 有值最重要）
+func scorePerson(p *Person) int {
+	score := 0
+	if p.ProfileURL != "" {
+		score += 2
+	}
+	if p.Name != "" {
+		score++
+	}
+	if p.OrigName != "" {
+		score++
+	}
+	return score
+}
+
 // AutoMigrate 自动迁移所有模型
 func AutoMigrate(db *gorm.DB) error {
+	// 先清理重复的 Person 记录，否则添加 uniqueIndex 会失败
+	CleanupDuplicatePersons(db)
+
 	if err := db.AutoMigrate(
 		&User{},
 		&LoginLog{},
@@ -841,6 +936,7 @@ func AutoMigrate(db *gorm.DB) error {
 		// V7: AI 用量记录与故障转移日志
 		&AIUsageRecord{},
 		&AIFailoverLog{},
+		
 	); err != nil {
 		return err
 	}
@@ -893,6 +989,27 @@ func ensureSQLiteColumns(db *gorm.DB) {
 			{Column: "tags", DDL: "ALTER TABLE `media` ADD COLUMN `tags` text DEFAULT ''"},
 			{Column: "website", DDL: "ALTER TABLE `media` ADD COLUMN `website` text DEFAULT ''"},
 			{Column: "release_date", DDL: "ALTER TABLE `media` ADD COLUMN `release_date` text DEFAULT ''"},
+			// 音乐元数据精简后的新字段
+			{Column: "artist_group", DDL: "ALTER TABLE `media` ADD COLUMN `artist_group` text DEFAULT ''"},
+			{Column: "band", DDL: "ALTER TABLE `media` ADD COLUMN `band` text DEFAULT ''"},
+			{Column: "original_singer", DDL: "ALTER TABLE `media` ADD COLUMN `original_singer` text DEFAULT ''"},
+			{Column: "album_release_date", DDL: "ALTER TABLE `media` ADD COLUMN `album_release_date` text DEFAULT ''"},
+			{Column: "album_type", DDL: "ALTER TABLE `media` ADD COLUMN `album_type` text DEFAULT ''"},
+			{Column: "isrc", DDL: "ALTER TABLE `media` ADD COLUMN `isrc` text DEFAULT ''"},
+			{Column: "is_ost", DDL: "ALTER TABLE `media` ADD COLUMN `is_ost` numeric DEFAULT 0"},
+			{Column: "play_count", DDL: "ALTER TABLE `media` ADD COLUMN `play_count` integer DEFAULT 0"},
+			{Column: "last_play_time", DDL: "ALTER TABLE `media` ADD COLUMN `last_play_time` datetime"},
+			{Column: "loved", DDL: "ALTER TABLE `media` ADD COLUMN `loved` numeric DEFAULT 0"},
+			{Column: "alias", DDL: "ALTER TABLE `media` ADD COLUMN `alias` text DEFAULT ''"},
+			{Column: "file_name", DDL: "ALTER TABLE `media` ADD COLUMN `file_name` text DEFAULT ''"},
+			{Column: "folder_level", DDL: "ALTER TABLE `media` ADD COLUMN `folder_level` integer DEFAULT 0"},
+			{Column: "notes", DDL: "ALTER TABLE `media` ADD COLUMN `notes` text DEFAULT ''"},
+			{Column: "lyrics_path", DDL: "ALTER TABLE `media` ADD COLUMN `lyrics_path` text DEFAULT ''"},
+			{Column: "lyrics_text", DDL: "ALTER TABLE `media` ADD COLUMN `lyrics_text` text DEFAULT ''"},
+			{Column: "logo_path", DDL: "ALTER TABLE `media` ADD COLUMN `logo_path` text DEFAULT ''"},
+		},
+		"people": {
+			{Column: "tmdb_id", DDL: "ALTER TABLE `people` ADD COLUMN `tmdb_id` integer DEFAULT 0"},
 		},
 		"users": {
 			{Column: "nickname", DDL: "ALTER TABLE `users` ADD COLUMN `nickname` text DEFAULT ''"},
@@ -921,6 +1038,27 @@ func ensureSQLiteColumns(db *gorm.DB) {
 		},
 		"movie_collections": {
 			{Column: "file_count", DDL: "ALTER TABLE `movie_collections` ADD COLUMN `file_count` integer DEFAULT 0"},
+		},
+		"music_tracks": {
+			{Column: "cue_file_path", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `cue_file_path` text DEFAULT ''"},
+			{Column: "start_time", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `start_time` real DEFAULT 0"},
+			{Column: "end_time", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `end_time` real DEFAULT 0"},
+			{Column: "is_virtual", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `is_virtual` numeric DEFAULT 0"},
+			{Column: "orig_title", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `orig_title` text DEFAULT ''"},
+			{Column: "alias", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `alias` text DEFAULT ''"},
+			{Column: "file_name", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `file_name` text DEFAULT ''"},
+			{Column: "artist_group", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `artist_group` text DEFAULT ''"},
+			{Column: "band", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `band` text DEFAULT ''"},
+			{Column: "original_singer", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `original_singer` text DEFAULT ''"},
+			{Column: "album_release_date", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `album_release_date` text DEFAULT ''"},
+			{Column: "album_type", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `album_type` text DEFAULT ''"},
+			{Column: "tags", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `tags` text DEFAULT ''"},
+			{Column: "last_play_time", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `last_play_time` datetime"},
+			{Column: "rating", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `rating` real DEFAULT 0"},
+			{Column: "isrc", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `isrc` text DEFAULT ''"},
+			{Column: "is_ost", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `is_ost` numeric DEFAULT 0"},
+			{Column: "notes", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `notes` text DEFAULT ''"},
+			{Column: "folder_level", DDL: "ALTER TABLE `music_tracks` ADD COLUMN `folder_level` integer DEFAULT 0"},
 		},
 	}
 

@@ -59,6 +59,14 @@ type SecretsConfig struct {
 	// 关键字段：bid / dbcl2 / ck。留空则以匿名方式访问豆瓣，仍可工作但成功率较低。
 	// 注意：Cookie 有效期约 1 个月，失效时需重新获取。仅供个人使用，请勿分享。
 	DoubanCookie string `mapstructure:"douban_cookie"`
+	// TMDb 刮削开关（前端可切换），默认启用
+	TMDbScraperEnabled bool `mapstructure:"tmdb_scraper_enabled"`
+	// 豆瓣刮削开关（前端可切换），默认启用
+	DoubanScraperEnabled bool `mapstructure:"douban_scraper_enabled"`
+	// 喜马拉雅刮削开关，默认启用
+	XimalayaScraperEnabled bool `mapstructure:"ximalaya_scraper_enabled"`
+	// 喜马拉雅刮削配置
+	Ximalaya XimalayaConfig `mapstructure:"ximalaya"`
 	// 预留：其他第三方服务密钥可在此扩展
 }
 
@@ -560,6 +568,18 @@ type STRMConfig struct {
 	DomainReferers map[string]string `mapstructure:"domain_referers"`
 }
 
+// XimalayaConfig 喜马拉雅刮削配置
+type XimalayaConfig struct {
+	Enabled            bool   `mapstructure:"enabled"`
+	APIBaseURL         string `mapstructure:"api_base_url"`
+	DeviceID           string `mapstructure:"device_id"`
+	RefreshToken       string `mapstructure:"refresh_token"`
+	AccessToken        string `mapstructure:"access_token"`
+	TokenExpiresAt     int64  `mapstructure:"token_expires_at"`
+	MinRequestInterval int    `mapstructure:"min_request_interval"`
+	MaxRequestInterval int    `mapstructure:"max_request_interval"`
+}
+
 // Config 应用主配置（聚合所有子模块）
 type Config struct {
 	mu sync.RWMutex `mapstructure:"-"`
@@ -726,6 +746,8 @@ func setDefaults() {
 	viper.SetDefault("secrets.thetvdb_api_key", "")
 	viper.SetDefault("secrets.fanart_tv_api_key", "")
 	viper.SetDefault("secrets.douban_cookie", "")
+	viper.SetDefault("secrets.tmdb_scraper_enabled", true)
+	viper.SetDefault("secrets.douban_scraper_enabled", true)
 
 	// ---- 应用 ----
 	viper.SetDefault("app.port", 8080)
@@ -861,6 +883,17 @@ func setDefaults() {
 	viper.SetDefault("strm.rewrite_hls", true)
 	viper.SetDefault("strm.remote_probe", true)
 	viper.SetDefault("strm.remote_probe_timeout", 8)
+
+	// ---- 喜马拉雅 ----
+	viper.SetDefault("secrets.ximalaya_scraper_enabled", true)
+	viper.SetDefault("secrets.ximalaya.enabled", true)
+	viper.SetDefault("secrets.ximalaya.api_base_url", "https://mobile.ximalaya.com")
+	viper.SetDefault("secrets.ximalaya.device_id", "")
+	viper.SetDefault("secrets.ximalaya.refresh_token", "")
+	viper.SetDefault("secrets.ximalaya.access_token", "")
+	viper.SetDefault("secrets.ximalaya.token_expires_at", 0)
+	viper.SetDefault("secrets.ximalaya.min_request_interval", 800)
+	viper.SetDefault("secrets.ximalaya.max_request_interval", 2000)
 
 	// ---- 番号刮削 ----
 	viper.SetDefault("adult_scraper.enabled", false)
@@ -1091,6 +1124,30 @@ func (c *Config) ClearTMDbAPIKey() error {
 	return c.SetTMDbAPIKey("")
 }
 
+// SetTMDbAPIProxy 设置 TMDb API 代理地址并持久化
+func (c *Config) SetTMDbAPIProxy(proxy string) error {
+	c.mu.Lock()
+	c.Secrets.TMDbAPIProxy = proxy
+	c.mu.Unlock()
+
+	viper.Set("secrets.tmdb_api_proxy", proxy)
+	c.updateSecretsFile("tmdb_api_proxy", proxy)
+
+	return c.saveConfig()
+}
+
+// SetTMDbImageProxy 设置 TMDb 图片代理地址并持久化
+func (c *Config) SetTMDbImageProxy(proxy string) error {
+	c.mu.Lock()
+	c.Secrets.TMDbImageProxy = proxy
+	c.mu.Unlock()
+
+	viper.Set("secrets.tmdb_image_proxy", proxy)
+	c.updateSecretsFile("tmdb_image_proxy", proxy)
+
+	return c.saveConfig()
+}
+
 // ==================== 豆瓣 Cookie 管理 ====================
 
 // GetDoubanCookie 获取豆瓣登录 Cookie（线程安全）
@@ -1132,6 +1189,38 @@ func (c *Config) SetDoubanCookie(cookie string) error {
 // ClearDoubanCookie 清除豆瓣 Cookie 并持久化
 func (c *Config) ClearDoubanCookie() error {
 	return c.SetDoubanCookie("")
+}
+
+// GetTMDbScraperEnabled 获取 TMDb 刮削开关状态
+func (c *Config) GetTMDbScraperEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Secrets.TMDbScraperEnabled
+}
+
+// SetTMDbScraperEnabled 设置 TMDb 刮削开关并持久化
+func (c *Config) SetTMDbScraperEnabled(enabled bool) error {
+	c.mu.Lock()
+	c.Secrets.TMDbScraperEnabled = enabled
+	viper.Set("secrets.tmdb_scraper_enabled", enabled)
+	c.mu.Unlock()
+	return c.saveConfig()
+}
+
+// GetDoubanScraperEnabled 获取豆瓣刮削开关状态
+func (c *Config) GetDoubanScraperEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Secrets.DoubanScraperEnabled
+}
+
+// SetDoubanScraperEnabled 设置豆瓣刮削开关并持久化
+func (c *Config) SetDoubanScraperEnabled(enabled bool) error {
+	c.mu.Lock()
+	c.Secrets.DoubanScraperEnabled = enabled
+	viper.Set("secrets.douban_scraper_enabled", enabled)
+	c.mu.Unlock()
+	return c.saveConfig()
 }
 
 // SaveAdultScraperConfig 将当前 AdultScraper 配置持久化到配置文件

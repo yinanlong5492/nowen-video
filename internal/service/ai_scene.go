@@ -148,7 +148,7 @@ func (s *AISceneService) doGenerateChapters(task *model.AIAnalysisTask, media *m
 }
 
 // detectSceneChanges 使用FFmpeg检测场景变化点
-func (s *AISceneService) detectSceneChanges(filePath string, duration float64) ([]float64, error) {
+func (s *AISceneService) detectSceneChanges(filePath string, _ float64) ([]float64, error) {
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("文件不存在: %s", filePath)
 	}
@@ -664,7 +664,7 @@ func (s *AISceneService) analyzeWithSceneDetection(media *model.Media) ([]model.
 		}
 
 		highlights = append(highlights, model.VideoHighlight{
-			Title:     fmt.Sprintf("精彩片段（场景密集区）"),
+			Title:     "精彩片段（场景密集区）",
 			StartTime: w.startTime,
 			EndTime:   w.startTime + 30,
 			Score:     score,

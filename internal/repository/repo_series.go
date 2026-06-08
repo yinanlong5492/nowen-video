@@ -10,6 +10,11 @@ func (r *SeriesRepo) DB() *gorm.DB {
 	return r.db
 }
 
+// WithTx 返回使用指定事务的临时仓库实例（供跨 Repo 事务使用）
+func (r *SeriesRepo) WithTx(tx *gorm.DB) *SeriesRepo {
+	return &SeriesRepo{db: tx}
+}
+
 // ==================== SeriesRepo ====================
 
 type SeriesRepo struct {

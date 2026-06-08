@@ -17,6 +17,7 @@ import (
 // MediaHandler 媒体处理器
 type MediaHandler struct {
 	mediaService    *service.MediaService
+	metadataService *service.MetadataService
 	personRepo      *repository.PersonRepo
 	mediaPersonRepo *repository.MediaPersonRepo
 	logger          *zap.SugaredLogger
@@ -333,20 +334,38 @@ func (h *MediaHandler) GetPersonMedia(c *gin.Context) {
 func (h *MediaHandler) PersonProfile(c *gin.Context) {
 	personID := c.Param("id")
 	person, err := h.personRepo.FindByID(personID)
-	if err != nil || person.ProfileURL == "" {
-		servePersonProfilePlaceholder(c)
+	if err != nil {
+		c.Status(http.StatusNotFound)
 		return
 	}
 
-	// 本地路径
-	if _, statErr := os.Stat(person.ProfileURL); statErr != nil {
-		servePersonProfilePlaceholder(c)
+	profilePath := person.ProfileURL
+	if profilePath == "" || !fileExists(profilePath) {
+		if h.metadataService != nil {
+			profilePath = h.metadataService.TryLoadPersonProfile(person)
+		}
+	}
+
+	if profilePath == "" {
+		c.Header("Content-Type", "image/svg+xml")
+		c.Header("Cache-Control", "public, max-age=86400")
+		initial := ""
+		if person.Name != "" {
+			initial = person.Name[:1]
+		}
+		c.String(http.StatusOK, personPlaceholderSVG(initial))
 		return
 	}
 
-	fileInfo, statErr := os.Stat(person.ProfileURL)
+	fileInfo, statErr := os.Stat(profilePath)
 	if statErr != nil {
-		servePersonProfilePlaceholder(c)
+		c.Header("Content-Type", "image/svg+xml")
+		c.Header("Cache-Control", "public, max-age=86400")
+		initial := ""
+		if person.Name != "" {
+			initial = person.Name[:1]
+		}
+		c.String(http.StatusOK, personPlaceholderSVG(initial))
 		return
 	}
 
@@ -358,7 +377,7 @@ func (h *MediaHandler) PersonProfile(c *gin.Context) {
 		return
 	}
 
-	ext := strings.ToLower(filepath.Ext(person.ProfileURL))
+	ext := strings.ToLower(filepath.Ext(profilePath))
 	switch ext {
 	case ".jpg", ".jpeg":
 		c.Header("Content-Type", "image/jpeg")
@@ -371,13 +390,46 @@ func (h *MediaHandler) PersonProfile(c *gin.Context) {
 	}
 
 	c.Header("Cache-Control", "public, max-age=86400, must-revalidate")
-	c.File(person.ProfileURL)
+	c.File(profilePath)
 }
 
-// servePersonProfilePlaceholder 返回演员头像占位 SVG
-func servePersonProfilePlaceholder(c *gin.Context) {
-	c.Header("Content-Type", "image/svg+xml")
-	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
-	c.Header("Pragma", "no-cache")
-	c.String(http.StatusOK, `<svg xmlns="http://www.w3.org/2000/svg" width="185" height="185" viewBox="0 0 185 185"><rect fill="#1e1e2e" width="185" height="185" rx="16"/><circle cx="92.5" cy="70" r="30" fill="#334155"/><ellipse cx="92.5" cy="155" rx="50" ry="40" fill="#334155"/></svg>`)
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func personPlaceholderSVG(initial string) string {
+	if initial == "" {
+		initial = "?"
+	}
+	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300">
+  <defs>
+    <linearGradient id="bg" x1="0%%" y1="0%%" x2="100%%" y2="100%%">
+      <stop offset="0%%" stop-color="#2a2a3e"/>
+      <stop offset="100%%" stop-color="#1a1a2e"/>
+    </linearGradient>
+  </defs>
+  <rect width="300" height="300" fill="url(#bg)"/>
+  <circle cx="150" cy="115" r="55" fill="#3d3d5c" opacity="0.5"/>
+  <ellipse cx="150" cy="265" rx="90" ry="55" fill="#3d3d5c" opacity="0.5"/>
+  <text x="150" y="175" font-family="system-ui,-apple-system,sans-serif" font-size="100" font-weight="bold" fill="#6b6b8a" text-anchor="middle" dominant-baseline="middle">%s</text>
+</svg>`, initial)
+}
+
+var transparentPNGBytes = []byte{
+	0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+	0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+	0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+	0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+	0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+	0x54, 0x78, 0x9C, 0x62, 0x00, 0x00, 0x00, 0x02,
+	0x00, 0x01, 0xE5, 0x27, 0xDE, 0xFC, 0x00, 0x00,
+	0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42,
+	0x60, 0x82,
+}
+
+func serveEmptyPNG(c *gin.Context) {
+	c.Header("Content-Type", "image/png")
+	c.Header("Cache-Control", "public, max-age=86400")
+	c.Data(http.StatusOK, "image/png", transparentPNGBytes)
 }

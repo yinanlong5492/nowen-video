@@ -6,10 +6,10 @@
 import type { Variants, Transition } from 'framer-motion'
 
 // ==================== 缓动函数 ====================
-/** 深空流体标准缓动 �?快速启动，优雅减�?*/
-export const easeSmooth = [0.22, 1, 0.36, 1] as const
-/** 退出缓�?�?快速加速离开 */
-export const easeExit = [0.36, 0, 0.66, -0.56] as const
+/** 深空流体标准缓动 - 快速启动，优雅减速 */
+export const easeSmooth: [number, number, number, number] = [0.22, 1, 0.36, 1]
+/** 退出缓动 - 快速加速离开 */
+export const easeExit: [number, number, number, number] = [0.36, 0, 0.66, -0.56]
 
 export const springDefault: Transition = { type: 'spring', stiffness: 300, damping: 30 }
 export const springBouncy: Transition = { type: 'spring', stiffness: 400, damping: 25 }

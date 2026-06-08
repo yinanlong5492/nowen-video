@@ -20,6 +20,7 @@ const (
 	LogTypeAPI      = "api"      // API 请求日志
 	LogTypePlayback = "playback" // 播放错误日志
 	LogTypeSystem   = "system"   // 系统事件日志
+	LogTypeScrape   = "scrape"   // 元数据刮削日志
 )
 
 // SystemLog 统一系统日志

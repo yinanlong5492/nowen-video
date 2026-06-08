@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -48,7 +49,7 @@ type CreateLibraryRequest struct {
 	Path string `json:"path"`
 	// Paths 完整的媒体文件夹列表（支持多个）。与 Path 二选一，优先使用 Paths
 	Paths []string `json:"paths"`
-	Type  string   `json:"type" binding:"required,oneof=movie tvshow mixed other"`
+	Type  string   `json:"type" binding:"required,oneof=movie tvshow mixed other music audiobook"`
 	// 高级设置
 	PreferLocalNFO    *bool   `json:"prefer_local_nfo"`
 	EnableFileFilter  *bool   `json:"enable_file_filter"`
@@ -100,15 +101,35 @@ func (h *LibraryHandler) List(c *gin.Context) {
 
 // Create 创建媒体库
 func (h *LibraryHandler) Create(c *gin.Context) {
+	h.logger.Infof("[CREATE-LIBRARY] 开始处理创建媒体库请求")
+	
+	// 先读取原始数据并记录
+	rawBody, err := c.GetRawData()
+	if err != nil {
+		h.logger.Errorf("[CREATE-LIBRARY] 读取原始请求体失败: %v", err)
+	} else {
+		h.logger.Infof("[CREATE-LIBRARY] 原始请求体内容: %s", string(rawBody))
+	}
+	
+	// 重新设置body以便后面的绑定可以正常工作
+	c.Request.Body = io.NopCloser(strings.NewReader(string(rawBody)))
+	
+	// 绑定到结构体
 	var req CreateLibraryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		h.logger.Errorf("[CREATE-LIBRARY] 参数绑定失败: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数无效"})
 		return
 	}
+	
+	h.logger.Infof("[CREATE-LIBRARY] 绑定后的请求参数: Name=%s, Type=%s, Path=%s, Paths=%v", req.Name, req.Type, req.Path, req.Paths)
 
 	// 归一化路径列表：优先使用 Paths，其次 Path
 	paths := normalizeLibraryPaths(req.Paths, req.Path)
+	h.logger.Infof("[CREATE-LIBRARY] 归一化后的路径: %v", paths)
+	
 	if len(paths) == 0 {
+		h.logger.Errorf("[CREATE-LIBRARY] 路径为空")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请至少指定一个媒体文件夹路径"})
 		return
 	}
@@ -117,6 +138,7 @@ func (h *LibraryHandler) Create(c *gin.Context) {
 	for _, p := range paths {
 		info, err := os.Stat(p)
 		if err != nil {
+			h.logger.Errorf("[CREATE-LIBRARY] 路径检查失败: %s, err: %v", p, err)
 			if os.IsNotExist(err) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("路径不存在: %s，请检查路径是否正确以及Docker卷映射是否配置", p)})
 				return
@@ -129,13 +151,17 @@ func (h *LibraryHandler) Create(c *gin.Context) {
 			return
 		}
 		if !info.IsDir() {
+			h.logger.Errorf("[CREATE-LIBRARY] 路径不是目录: %s", p)
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("路径不是目录: %s", p)})
 			return
 		}
 	}
+	
+	h.logger.Infof("[CREATE-LIBRARY] 路径检查通过，调用 service 创建媒体库")
 
 	lib, err := h.libService.CreateWithPaths(req.Name, paths, req.Type)
 	if err != nil {
+		h.logger.Errorf("[CREATE-LIBRARY] service 创建媒体库失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建媒体库失败"})
 		return
 	}
@@ -173,6 +199,8 @@ func (h *LibraryHandler) Create(c *gin.Context) {
 	if needUpdate {
 		h.libService.Update(lib)
 	}
+	
+	h.logger.Infof("[CREATE-LIBRARY] 媒体库创建成功: ID=%s, Name=%s, Type=%s", lib.ID, lib.Name, lib.Type)
 
 	c.JSON(http.StatusCreated, gin.H{"data": lib})
 }
@@ -199,6 +227,33 @@ func (h *LibraryHandler) Delete(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "已删除"})
+}
+
+type RefreshMetadataRequest struct {
+	Mode          string `json:"mode"`
+	ReplaceImages bool   `json:"replace_images"`
+}
+
+// RefreshMetadata 刷新媒体库元数据
+func (h *LibraryHandler) RefreshMetadata(c *gin.Context) {
+	id := c.Param("id")
+	var req RefreshMetadataRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数无效"})
+		return
+	}
+	if req.Mode == "" {
+		req.Mode = "fill_missing"
+	}
+	if err := h.libService.RefreshMetadata(id, req.Mode, req.ReplaceImages); err != nil {
+		if err == service.ErrScanInProgress {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "刷新元数据已启动"})
 }
 
 // Reindex 重建媒体库索引

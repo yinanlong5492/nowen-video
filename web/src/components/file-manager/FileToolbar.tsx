@@ -138,6 +138,8 @@ export default function FileToolbar({
             <option value="">全部类型</option>
             <option value="movie">电影</option>
             <option value="episode">剧集</option>
+            <option value="music">音乐</option>
+            <option value="audiobook">有声书</option>
           </select>
           <select value={filterScraped} onChange={e => onFilterScrapedChange(e.target.value)}
             className="input-field px-3 py-1.5 text-sm rounded-lg">

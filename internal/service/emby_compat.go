@@ -755,7 +755,7 @@ func (s *EmbyCompatService) scanEmbySeasonFolder(seasonPath string, seasonNum in
 }
 
 // detectEmbyItemType 智能检测子目录是电影还是电视剧
-func (s *EmbyCompatService) detectEmbyItemType(itemPath, dirName string) string {
+func (s *EmbyCompatService) detectEmbyItemType(itemPath string, _ string) string {
 	entries, err := os.ReadDir(itemPath)
 	if err != nil {
 		return ""

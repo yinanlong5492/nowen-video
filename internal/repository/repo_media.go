@@ -19,6 +19,11 @@ func (r *MediaRepo) DB() *gorm.DB {
 	return r.db
 }
 
+// WithTx 返回使用指定事务的临时仓库实例（供跨 Repo 事务使用）
+func (r *MediaRepo) WithTx(tx *gorm.DB) *MediaRepo {
+	return &MediaRepo{db: tx}
+}
+
 func (r *MediaRepo) Create(media *model.Media) error {
 	return r.db.Create(media).Error
 }
@@ -344,6 +349,17 @@ func (r *MediaRepo) RecentNonEpisodeAll(libraryID string) ([]model.Media, error)
 	query = r.excludeDuplicates(query)
 	err := query.Order("created_at DESC").Find(&media).Error
 	return media, err
+}
+
+// ResetScrapeStatusByLibrary 批量重置指定媒体库的刮削状态
+// excludeStatus: 跳过指定状态的条目（如 "manual"）
+func (r *MediaRepo) ResetScrapeStatusByLibrary(libraryID, newStatus, excludeStatus string) (int64, error) {
+	query := r.db.Model(&model.Media{}).Where("library_id = ?", libraryID)
+	if excludeStatus != "" {
+		query = query.Where("scrape_status != ?", excludeStatus)
+	}
+	result := query.Update("scrape_status", newStatus)
+	return result.RowsAffected, result.Error
 }
 
 func (r *MediaRepo) ListNonEpisode(page, size int, libraryID string) ([]model.Media, int64, error) {

@@ -206,6 +206,11 @@ func (s *ScrapeManagerService) executeScrape(task *model.ScrapeTask) {
 	s.taskRepo.Update(task)
 	s.addHistory(task.ID, "scrape_done", fmt.Sprintf("刮削完成, 质量评分: %d", task.QualityScore), "")
 	s.broadcastTaskUpdate(task)
+
+	// TV 剧集刮削成功后，尝试刮削下属所有单集的元数据
+	if task.MediaType == "tvshow" || task.MediaType == "episode" {
+		go s.scrapeEpisodeMeta(task)
+	}
 }
 
 // scrapeTMDb 从TMDb刮削
@@ -321,7 +326,7 @@ func (s *ScrapeManagerService) scrapeBangumi(task *model.ScrapeTask) error {
 	}
 
 	// 通过Bangumi搜索
-	subjects, err := s.metadata.SearchBangumi(title, 2, 0)
+	subjects, err := s.metadata.bangumi.SearchSubjects(title, 2, 0)
 	if err != nil {
 		return fmt.Errorf("Bangumi搜索失败: %w", err)
 	}
@@ -815,6 +820,104 @@ func (s *ScrapeManagerService) applyTMDbResult(task *model.ScrapeTask, result *T
 	if len(dateStr) >= 4 {
 		fmt.Sscanf(dateStr[:4], "%d", &task.ResultYear)
 	}
+}
+
+// scrapeEpisodeMeta TV 剧集刮削完成后，异步为下属单集填充完整元数据
+func (s *ScrapeManagerService) scrapeEpisodeMeta(task *model.ScrapeTask) {
+	if task.SeriesID == "" {
+		return
+	}
+
+	series, err := s.seriesRepo.FindByID(task.SeriesID)
+	if err != nil || series.TMDbID <= 0 {
+		s.logger.Debugf("[%s] 跳过集元数据刮削: series TMDbID=%d", task.ID, series.TMDbID)
+		return
+	}
+
+	episodes, err := s.mediaRepo.ListBySeriesID(task.SeriesID)
+	if err != nil {
+		s.logger.Warnf("[%s] 获取单集列表失败: %v", task.ID, err)
+		return
+	}
+
+	if len(episodes) == 0 {
+		return
+	}
+
+	s.logger.Infof("[%s] 开始刮削集元数据, 共 %d 集 (TMDb Series ID=%d)", task.ID, len(episodes), series.TMDbID)
+
+	updatedCount := 0
+	for _, ep := range episodes {
+		if ep.SeasonNum <= 0 || ep.EpisodeNum <= 0 {
+			continue
+		}
+
+		detail := s.metadata.GetEpisodeMetadata(series.TMDbID, ep.SeasonNum, ep.EpisodeNum)
+		if detail == nil {
+			continue
+		}
+
+		changed := false
+		if detail.Name != "" && ep.EpisodeTitle != detail.Name {
+			ep.EpisodeTitle = detail.Name
+			changed = true
+		}
+		if detail.Overview != "" && ep.Overview == "" {
+			ep.Overview = detail.Overview
+			changed = true
+		}
+		if detail.VoteAverage > 0 && ep.Rating == 0 {
+			ep.Rating = detail.VoteAverage
+			changed = true
+		}
+		if detail.Runtime > 0 && ep.Runtime == 0 {
+			ep.Runtime = detail.Runtime
+			changed = true
+		}
+		if detail.AirDate != "" && ep.Premiered == "" {
+			ep.Premiered = detail.AirDate
+			changed = true
+		}
+
+		if changed {
+			if err := s.mediaRepo.Update(&ep); err != nil {
+				s.logger.Warnf("[%s] 保存单集元数据失败 S%02dE%02d: %v", task.ID, ep.SeasonNum, ep.EpisodeNum, err)
+			} else {
+				updatedCount++
+				fields := s.describeMetaChanges(&ep, detail)
+				s.logger.Debugf("[%s] 集元数据刮削成功: S%02dE%02d %s", task.ID, ep.SeasonNum, ep.EpisodeNum, fields)
+			}
+		}
+	}
+
+	if updatedCount > 0 {
+		s.addHistory(task.ID, "episode_meta", fmt.Sprintf("成功刮削 %d 集的元数据", updatedCount), "")
+	}
+	s.logger.Infof("[%s] 集元数据刮削完成: %d/%d 集已更新", task.ID, updatedCount, len(episodes))
+}
+
+// describeMetaChanges 生成变更描述（用于日志）
+func (s *ScrapeManagerService) describeMetaChanges(ep *model.Media, detail *TMDbEpisode) string {
+	parts := []string{}
+	if detail.Name != "" && ep.EpisodeTitle == detail.Name {
+		parts = append(parts, "标题")
+	}
+	if detail.Overview != "" && ep.Overview == detail.Overview {
+		parts = append(parts, "概述")
+	}
+	if detail.VoteAverage > 0 && ep.Rating == detail.VoteAverage {
+		parts = append(parts, "评分")
+	}
+	if detail.Runtime > 0 && ep.Runtime == detail.Runtime {
+		parts = append(parts, "时长")
+	}
+	if detail.AirDate != "" && ep.Premiered == detail.AirDate {
+		parts = append(parts, "日期")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "+")
 }
 
 // calculateQualityScore 计算数据质量评分

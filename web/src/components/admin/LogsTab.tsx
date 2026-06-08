@@ -24,6 +24,7 @@ import {
   Server,
   Play,
   X,
+  Film,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -40,6 +41,7 @@ const TYPE_CONFIG: Record<string, { label: string; icon: typeof Globe }> = {
   api: { label: 'API 请求', icon: Globe },
   playback: { label: '播放错误', icon: Play },
   system: { label: '系统事件', icon: Server },
+  scrape: { label: '元数据刮削', icon: Film },
 }
 
 // HTTP 方法颜色
@@ -149,12 +151,17 @@ export default function LogsTab() {
   const handleClean = async () => {
     setCleaning(true)
     try {
-      await adminApi.cleanSystemLogs(cleanDays)
+      const res = await adminApi.cleanSystemLogs(cleanDays)
       setShowCleanDialog(false)
       loadLogs()
       loadStats()
-    } catch {
-      // 静默处理
+      if (res.data.deleted > 0) {
+        alert(`已清理 ${res.data.deleted} 条旧日志`)
+      } else {
+        alert('没有需要清理的旧日志（所有日志均在保留天数内）')
+      }
+    } catch (err: any) {
+      alert('清理失败: ' + (err?.response?.data?.error || err?.message || '未知错误'))
     } finally {
       setCleaning(false)
     }
@@ -177,7 +184,7 @@ export default function LogsTab() {
     <div className="space-y-6">
       {/* ===== 统计卡片 ===== */}
       {stats && (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
           <div className="glass-panel-subtle rounded-xl p-4">
             <div className="flex items-center gap-2 text-sm text-surface-400">
               <FileText size={14} className="text-neon/60" />
@@ -214,6 +221,19 @@ export default function LogsTab() {
             </p>
             <p className="mt-1 text-xs text-surface-500">
               播放错误 {(stats.type_counts?.playback || 0).toLocaleString()} 条
+            </p>
+          </div>
+
+          <div className="glass-panel-subtle rounded-xl p-4">
+            <div className="flex items-center gap-2 text-sm text-surface-400">
+              <Film size={14} className="text-amber-400/60" />
+              元数据刮削
+            </div>
+            <p className="mt-2 font-display text-2xl font-bold tracking-wide" style={{ color: 'var(--text-primary)' }}>
+              {(stats.type_counts?.scrape || 0).toLocaleString()}
+            </p>
+            <p className="mt-1 text-xs text-surface-500">
+              系统事件 {(stats.type_counts?.system || 0).toLocaleString()} 条
             </p>
           </div>
 
@@ -295,6 +315,7 @@ export default function LogsTab() {
               <option value="api">API 请求</option>
               <option value="playback">播放错误</option>
               <option value="system">系统事件</option>
+              <option value="scrape">元数据刮削</option>
             </select>
           </div>
           <div>

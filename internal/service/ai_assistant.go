@@ -749,7 +749,7 @@ func (s *AIAssistantService) executeBatchTag(session *ChatSession, action *Sugge
 }
 
 // executeAnalyze 执行文件分析
-func (s *AIAssistantService) executeAnalyze(session *ChatSession, userID string) (*ExecuteResponse, error) {
+func (s *AIAssistantService) executeAnalyze(_ *ChatSession, _ string) (*ExecuteResponse, error) {
 	stats, err := s.fileManager.GetStats("", "")
 	if err != nil {
 		return &ExecuteResponse{Success: false, Message: "获取统计信息失败"}, nil
@@ -792,7 +792,7 @@ func (s *AIAssistantService) executeAnalyze(session *ChatSession, userID string)
 // ==================== 误分类检测与重分类 ====================
 
 // executeAnalyzeMisclassification 执行误分类分析
-func (s *AIAssistantService) executeAnalyzeMisclassification(session *ChatSession, userID string) (*ExecuteResponse, error) {
+func (s *AIAssistantService) executeAnalyzeMisclassification(session *ChatSession, _ string) (*ExecuteResponse, error) {
 	report, err := s.fileManager.AnalyzeMisclassification()
 	if err != nil {
 		return &ExecuteResponse{Success: false, Message: fmt.Sprintf("分析失败: %v", err)}, nil
@@ -801,7 +801,7 @@ func (s *AIAssistantService) executeAnalyzeMisclassification(session *ChatSessio
 	// 构建分析报告
 	var sb strings.Builder
 	sb.WriteString("## 🔍 剧集误分类分析报告\n\n")
-	sb.WriteString(fmt.Sprintf("| 指标 | 数值 |\n|------|------|\n"))
+	sb.WriteString("| 指标 | 数值 |\n|------|------|\n")
 	sb.WriteString(fmt.Sprintf("| 当前电影总数 | %d |\n", report.TotalMovies))
 	sb.WriteString(fmt.Sprintf("| 疑似剧集数量 | %d |\n", report.SuspectedEpisodes))
 	sb.WriteString(fmt.Sprintf("| 🔴 高置信度 (>80%%) | %d |\n", report.HighConfidence))

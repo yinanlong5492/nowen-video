@@ -55,6 +55,40 @@ func (r *PersonRepo) FindOrCreate(name string, tmdbID int) (*model.Person, error
 	return newPerson, nil
 }
 
+// FindOrCreateByTMDbID 通过 TMDbID 查找或创建人物，处理唯一约束冲突
+// 注意：profileURL 仅用于下载，不直接写入 Person.ProfileURL（ProfileURL 由 downloadPersonProfile 下载后写入本地路径）
+func (r *PersonRepo) FindOrCreateByTMDbID(tmdbID int, name, profileURL string) (*model.Person, error) {
+	// 先查找已存在的
+	existing, err := r.FindByTMDbID(tmdbID)
+	if err == nil {
+		// 必要时更新名称（但不更新 ProfileURL，因为它应该由 downloadPersonProfile 管理）
+		if existing.Name == "" && name != "" {
+			existing.Name = name
+			r.Update(existing)
+		}
+		return existing, nil
+	}
+
+	// 不存在则创建（ProfileURL 留空，由 downloadPersonProfile 下载后填入本地路径）
+	newPerson := &model.Person{
+		TMDbID: tmdbID,
+		Name:   name,
+	}
+	if err := r.Create(newPerson); err != nil {
+		// 唯一约束冲突：另一个 goroutine 先创建了，重新查找
+		existing, findErr := r.FindByTMDbID(tmdbID)
+		if findErr == nil {
+			if existing.Name == "" && name != "" {
+				existing.Name = name
+				r.Update(existing)
+			}
+			return existing, nil
+		}
+		return nil, err
+	}
+	return newPerson, nil
+}
+
 func (r *PersonRepo) Search(keyword string, limit int) ([]model.Person, error) {
 	var people []model.Person
 	err := r.db.Where("name LIKE ?", "%"+keyword+"%").Limit(limit).Find(&people).Error
@@ -65,6 +99,11 @@ func (r *PersonRepo) Search(keyword string, limit int) ([]model.Person, error) {
 
 type MediaPersonRepo struct {
 	db *gorm.DB
+}
+
+// WithTx 返回使用指定事务的临时仓库实例（供跨 Repo 事务使用）
+func (r *MediaPersonRepo) WithTx(tx *gorm.DB) *MediaPersonRepo {
+	return &MediaPersonRepo{db: tx}
 }
 
 func (r *MediaPersonRepo) Create(mp *model.MediaPerson) error {

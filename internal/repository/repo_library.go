@@ -32,5 +32,5 @@ func (r *LibraryRepo) Update(lib *model.Library) error {
 }
 
 func (r *LibraryRepo) Delete(id string) error {
-	return r.db.Delete(&model.Library{}, "id = ?", id).Error
+	return r.db.Unscoped().Delete(&model.Library{}, "id = ?", id).Error
 }

@@ -639,7 +639,7 @@ func (s *ASRService) convertToVTT(videoPath string, language string, result *Whi
 
 	var buf strings.Builder
 	buf.WriteString("WEBVTT\n")
-	buf.WriteString(fmt.Sprintf("Kind: captions\n"))
+	buf.WriteString("Kind: captions\n")
 	buf.WriteString(fmt.Sprintf("Language: %s\n", result.Language))
 	buf.WriteString("\n")
 
@@ -1064,7 +1064,7 @@ func (s *ASRService) processTranslateTask(srcVTTPath string, mediaID string, tar
 
 	var buf strings.Builder
 	buf.WriteString("WEBVTT\n")
-	buf.WriteString(fmt.Sprintf("Kind: captions\n"))
+	buf.WriteString("Kind: captions\n")
 	buf.WriteString(fmt.Sprintf("Language: %s\n", targetLang))
 	buf.WriteString(fmt.Sprintf("X-Translated-From: %s\n", filepath.Base(srcVTTPath)))
 	buf.WriteString("\n")

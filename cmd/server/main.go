@@ -59,6 +59,37 @@ func main() {
 		sugar.Fatalf("连接数据库失败: %v", err)
 	}
 
+	// SQLite 优化配置
+	if sqlDB, err := db.DB(); err == nil {
+		// 设置连接池参数
+		sqlDB.SetMaxOpenConns(1)
+		sqlDB.SetMaxIdleConns(1)
+		sqlDB.SetConnMaxLifetime(0) // 连接永久有效
+		sqlDB.SetConnMaxIdleTime(0) // 空闲连接永久有效
+
+		// 启用 WAL (Write-Ahead Logging) 模式，提高并发性能
+		if _, err := sqlDB.Exec("PRAGMA journal_mode=WAL;"); err != nil {
+			sugar.Warnf("启用 WAL 模式失败: %v", err)
+		}
+
+		// 设置 busy timeout (等待锁的时间，单位毫秒)
+		if _, err := sqlDB.Exec("PRAGMA busy_timeout=30000;"); err != nil {
+			sugar.Warnf("设置 busy timeout 失败: %v", err)
+		}
+
+		// 设置 synchronous 模式为 NORMAL (提高性能，保证安全性)
+		if _, err := sqlDB.Exec("PRAGMA synchronous=NORMAL;"); err != nil {
+			sugar.Warnf("设置 synchronous 模式失败: %v", err)
+		}
+
+		// 设置 cache size (提高查询性能)
+		if _, err := sqlDB.Exec("PRAGMA cache_size=-64000;"); err != nil { // -64000 = 64MB
+			sugar.Warnf("设置 cache size 失败: %v", err)
+		}
+
+		sugar.Info("SQLite 数据库优化配置完成")
+	}
+
 	// 自动迁移
 	if err := model.AutoMigrate(db); err != nil {
 		sugar.Fatalf("数据库迁移失败: %v", err)
@@ -74,6 +105,18 @@ func main() {
 	if err := services.User.EnsureAdminExists(); err != nil {
 		sugar.Warnf("创建默认管理员失败: %v", err)
 	}
+
+	// 音乐库表迁移（music_tracks/music_albums 等）
+	if err := services.Music.Migrate(); err != nil {
+		sugar.Fatalf("音乐服务数据库迁移失败: %v", err)
+	}
+	sugar.Info("音乐服务数据库迁移完成")
+
+	// 有声书表迁移
+	if err := services.AudioBook.Migrate(); err != nil {
+		sugar.Fatalf("有声书服务数据库迁移失败: %v", err)
+	}
+	sugar.Info("有声书服务数据库迁移完成")
 
 	// 启动时清理孤立数据（处理历史遗留的数据不一致问题）
 	services.Library.CleanOrphanedData()
@@ -107,7 +150,7 @@ func main() {
 	r.Use(middleware.CORS(corsOrigins...))
 	r.Use(middleware.Security())
 	r.Use(middleware.RateLimitWithConfig(middleware.RateLimitConfig{
-		MaxRequests:  600, // 每分钟600次请求
+		MaxRequests:  6000, // 每分钟6000次请求（100/秒，适应大量封面/海报并发加载）
 		Window:       time.Minute,
 		ExcludePaths: []string{"/api/ws"}, // WebSocket 不受速率限制
 	}))
@@ -217,6 +260,7 @@ func main() {
 		api.POST("/libraries", middleware.AdminOnly(), handlers.Library.Create)
 		api.PUT("/libraries/:id", middleware.AdminOnly(), handlers.Library.Update)
 		api.POST("/libraries/:id/scan", middleware.AdminOnly(), handlers.Library.Scan)
+		api.POST("/libraries/:id/refresh-metadata", middleware.AdminOnly(), handlers.Library.RefreshMetadata)
 		api.POST("/libraries/:id/reindex", middleware.AdminOnly(), handlers.Library.Reindex)
 		api.DELETE("/libraries/:id", middleware.AdminOnly(), handlers.Library.Delete)
 
@@ -241,6 +285,7 @@ func main() {
 		api.GET("/series", handlers.Series.List)
 		api.GET("/series/:id", handlers.Series.Detail)
 		api.GET("/series/:id/seasons", handlers.Series.Seasons)
+		api.GET("/series/:id/seasons/:season/poster", handlers.Series.SeasonPoster)
 		api.GET("/series/:id/seasons/:season", handlers.Series.SeasonEpisodes)
 		api.GET("/series/:id/next", handlers.Series.NextEpisode)
 
@@ -269,11 +314,14 @@ func main() {
 
 		// 海报/缩略图（不做权限校验：海报属于媒体元信息，不可播放）
 		api.GET("/media/:id/poster", handlers.Stream.Poster)
+		api.GET("/media/:id/backdrop", handlers.Stream.Backdrop)
+		api.GET("/media/:id/logo", handlers.Stream.Logo)
 
 		_ = guardByMediaIDParam // 单保留变量供下文使用
 
 		api.GET("/series/:id/poster", handlers.Series.Poster)
 		api.GET("/series/:id/backdrop", handlers.Series.Backdrop)
+		api.GET("/series/:id/logo", handlers.Series.Logo)
 		api.GET("/series/:id/persons", handlers.Series.GetPersons)
 		api.GET("/media/:id/persons", handlers.Media.GetPersons)
 
@@ -383,10 +431,6 @@ func main() {
 		api.POST("/media/:id/comments", handlers.Comment.Create)
 		api.DELETE("/comments/:id", handlers.Comment.Delete)
 
-		// 播放统计
-		api.POST("/stats/playback", handlers.Stats.RecordPlayback)
-		api.GET("/stats/me", handlers.Stats.GetUserStats)
-
 		// 播放错误上报（前端视频播放器错误日志）
 		api.POST("/logs/playback-error", handlers.SystemLog.ReportPlaybackError)
 
@@ -401,6 +445,25 @@ func main() {
 		api.POST("/music/playlists", handlers.Music.CreatePlaylist)
 		api.GET("/music/playlists/:id", handlers.Music.GetPlaylist)
 		api.POST("/music/playlists/:id/tracks", handlers.Music.AddToPlaylist)
+		api.GET("/music/tracks/:id/stream", handlers.Music.StreamTrack)
+		api.GET("/music/tracks/:id/cover", handlers.Music.GetTrackCover)
+		api.GET("/music/albums/:id/cover", handlers.Music.GetAlbumCover)
+
+		// ==================== 有声书 ====================
+		api.GET("/audiobooks", handlers.AudioBook.ListBooks)
+		api.GET("/audiobooks/search", handlers.AudioBook.SearchBooks)
+		api.GET("/audiobooks/:id", handlers.AudioBook.GetBook)
+		api.PUT("/audiobooks/:id", middleware.AdminOnly(), handlers.AudioBook.UpdateBook)
+		api.DELETE("/audiobooks/:id", middleware.AdminOnly(), handlers.AudioBook.DeleteBook)
+		api.GET("/audiobooks/:id/chapters", handlers.AudioBook.GetChapters)
+		api.GET("/audiobooks/:id/stream", handlers.AudioBook.StreamAudio)
+		api.GET("/audiobooks/:id/cover", handlers.AudioBook.GetCover)
+		api.PUT("/audiobooks/:id/position", handlers.AudioBook.UpdatePlayPosition)
+		// 喜马拉雅刮削
+		api.POST("/audiobooks/:id/scrape", middleware.AdminOnly(), handlers.AudioBook.ScrapeBook)
+		api.POST("/audiobooks/:id/scrape-by-id", middleware.AdminOnly(), handlers.AudioBook.ScrapeBookByXimalayaID)
+		api.POST("/audiobooks/library/:libraryId/scrape-all", middleware.AdminOnly(), handlers.AudioBook.ScrapeAllBooks)
+		api.GET("/audiobooks/search-ximalaya", middleware.AdminOnly(), handlers.AudioBook.SearchXimalayaAlbums)
 
 		// ==================== V2: 图片库 ====================
 		api.GET("/photos", handlers.Photo.ListPhotos)
@@ -473,6 +536,11 @@ func main() {
 		admin.DELETE("/settings/tmdb", handlers.Admin.ClearTMDbConfig)
 		admin.GET("/settings/tmdb/validate", handlers.Admin.ValidateTMDbConfig)
 		admin.POST("/settings/tmdb/test", handlers.Admin.TestTMDbAPIKey)
+		admin.POST("/settings/tmdb/proxy", handlers.Admin.UpdateTMDbProxy)
+
+		// 刮削数据源启停配置
+		admin.GET("/settings/scraper", handlers.Admin.GetScraperEnabledConfig)
+		admin.PUT("/settings/scraper", handlers.Admin.UpdateScraperEnabledConfig)
 
 		// 系统全局设置
 		admin.GET("/settings/system", handlers.Admin.GetSystemSettings)
@@ -524,6 +592,8 @@ func main() {
 		admin.POST("/series/:seriesId/scrape", handlers.Admin.ScrapeSeriesMetadata)
 		admin.PUT("/series/:seriesId/metadata", handlers.Admin.UpdateSeriesMetadata)
 		admin.DELETE("/series/:seriesId", handlers.Admin.DeleteSeries)
+
+		admin.DELETE("/series/:seriesId/seasons/:seasonNum", handlers.Admin.DeleteSeason)
 
 		// 剧集合并（多季自动合并为一个整体）
 		admin.POST("/series/merge", handlers.Admin.MergeSeries)
@@ -612,9 +682,6 @@ func main() {
 		admin.POST("/ai/router/restore", handlers.AI.RestoreProvider)
 		admin.GET("/ai/router/logs", handlers.AI.ListFailoverLogs)
 		admin.GET("/ai/usage", handlers.AI.GetUsageBuckets)
-
-		// 用户观影统计（管理员）
-		admin.GET("/stats/:userId", handlers.Stats.GetUserStatsAdmin)
 
 		// ==================== 智能扫描重命名 ====================
 		// 默认 dry-run；落盘需 confirm=true。完整 plan + journal，可回滚。
@@ -804,6 +871,9 @@ func main() {
 
 		// ==================== V2: 音乐库管理 ====================
 		admin.POST("/music/scan", handlers.Music.ScanLibrary)
+		admin.POST("/music/remove-duplicates", handlers.Music.RemoveDuplicates)
+		admin.PUT("/music/albums/:id", handlers.Music.UpdateAlbum)
+		admin.PUT("/music/artists", handlers.Music.UpdateArtist)
 
 		// ==================== V2: 图片库管理 ====================
 		admin.POST("/photos/scan", handlers.Photo.ScanLibrary)

@@ -81,8 +81,8 @@ func (h *UserHandler) LoginLogs(c *gin.Context) {
 
 // UpdateProgressRequest 更新观看进度请求
 type UpdateProgressRequest struct {
-	Position float64 `json:"position" binding:"required"`
-	Duration float64 `json:"duration" binding:"required"`
+	Position float64 `json:"position"`
+	Duration float64 `json:"duration"`
 }
 
 // UpdateProgress 更新观看进度
@@ -93,6 +93,12 @@ func (h *UserHandler) UpdateProgress(c *gin.Context) {
 	var req UpdateProgressRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数无效"})
+		return
+	}
+
+	// 手动验证：duration 必须大于 0，position 可以为 0（表示取消标记）
+	if req.Duration <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "duration 必须大于 0"})
 		return
 	}
 

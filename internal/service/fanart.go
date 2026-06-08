@@ -206,7 +206,7 @@ func (s *FanartService) EnhanceMovieImages(media *model.Media) error {
 	return nil
 }
 
-// EnhanceTVImages 为剧集增强图片
+// EnhanceTVImages 为剧集增强图片（包含季海报）
 func (s *FanartService) EnhanceTVImages(series *model.Series, tvdbID int) error {
 	if tvdbID == 0 {
 		return fmt.Errorf("缺少 TVDB ID，无法查询 Fanart.tv")
@@ -247,7 +247,97 @@ func (s *FanartService) EnhanceTVImages(series *model.Series, tvdbID int) error 
 	}
 
 	if updated {
-		return s.seriesRepo.Update(series)
+		if err := s.seriesRepo.Update(series); err != nil {
+			return err
+		}
+	}
+
+	// 下载季海报
+	if len(images.SeasonPoster) > 0 {
+		if err := s.downloadSeasonPosters(series, images.SeasonPoster); err != nil {
+			s.logger.Warnf("下载季海报失败: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// downloadSeasonPosters 下载所有季海报到剧集目录
+func (s *FanartService) downloadSeasonPosters(series *model.Series, seasonPosters []FanartImage) error {
+	if series.FolderPath == "" {
+		return fmt.Errorf("剧集目录路径为空")
+	}
+
+	for _, poster := range seasonPosters {
+		// 解析季号
+		if poster.Season == "" {
+			continue
+		}
+
+		seasonNum := 0
+		fmt.Sscanf(poster.Season, "%d", &seasonNum)
+		if seasonNum <= 0 {
+			continue
+		}
+
+		// 构建季海报文件名：seasonXX-poster.ext
+		localPath := filepath.Join(series.FolderPath, fmt.Sprintf("season%02d-poster.jpg", seasonNum))
+
+		// 如果已存在则跳过
+		if _, err := os.Stat(localPath); err == nil {
+			s.logger.Debugf("季海报已存在，跳过: %s", localPath)
+			continue
+		}
+
+		// 下载图片
+		req, err := http.NewRequest("GET", poster.URL, nil)
+		if err != nil {
+			s.logger.Warnf("创建季海报下载请求失败: %v", err)
+			continue
+		}
+		req.Header.Set("User-Agent", getRandomUserAgent())
+		req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+
+		resp, err := s.client.Do(req)
+		if err != nil {
+			s.logger.Warnf("下载季海报失败: %v", err)
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			s.logger.Warnf("季海报请求失败: %d", resp.StatusCode)
+			continue
+		}
+
+		// 确定扩展名
+		ext := ".jpg"
+		ct := resp.Header.Get("Content-Type")
+		switch {
+		case strings.Contains(ct, "png"):
+			ext = ".png"
+		case strings.Contains(ct, "webp"):
+			ext = ".webp"
+		}
+
+		localPath = filepath.Join(series.FolderPath, fmt.Sprintf("season%02d-poster%s", seasonNum, ext))
+
+		file, err := os.Create(localPath)
+		if err != nil {
+			s.logger.Warnf("创建季海报文件失败: %v", err)
+			continue
+		}
+		defer file.Close()
+
+		if _, err := io.Copy(file, resp.Body); err != nil {
+			s.logger.Warnf("保存季海报失败: %v", err)
+			continue
+		}
+
+		s.logger.Debugf("已下载季海报: S%d -> %s", seasonNum, localPath)
+
+		// 添加延迟避免请求过快
+		randomDelay(500, 1000)
 	}
 
 	return nil

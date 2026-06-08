@@ -158,10 +158,35 @@ func (r *FavoriteRepo) List(userID string, page, size int) ([]model.Favorite, in
 	var total int64
 
 	query := r.db.Model(&model.Favorite{}).
-		Joins("JOIN media ON media.id = favorites.media_id AND media.deleted_at IS NULL").
+		Joins("LEFT JOIN media ON media.id = favorites.media_id AND media.deleted_at IS NULL").
 		Where("favorites.user_id = ?", userID)
 	query.Count(&total)
 	err := query.Preload("Media").Order("favorites.created_at DESC").Offset((page - 1) * size).Limit(size).Find(&favs).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	for i := range favs {
+		if favs[i].Media.ID == "" {
+			var s struct {
+				ID        string
+				Title     string
+				Year      int
+				Rating    float64
+				PosterPath string
+			}
+			if err := r.db.Table("series").Where("id = ?", favs[i].MediaID).Select("id, title, year, rating, poster_path").Scan(&s).Error; err == nil && s.ID != "" {
+				favs[i].Media = model.Media{
+					ID:         s.ID,
+					Title:      s.Title,
+					Year:       s.Year,
+					Rating:     s.Rating,
+					PosterPath: s.PosterPath,
+				}
+			}
+		}
+	}
+
 	return favs, total, err
 }
 

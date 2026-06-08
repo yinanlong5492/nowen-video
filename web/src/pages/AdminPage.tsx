@@ -1,8 +1,12 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+
+import { useEffect, useState, useCallback, useMemo, useRef, lazy, Suspense } from 'react'
 import { adminApi, libraryApi } from '@/api'
+import { useSystemSettingsStore } from '@/stores/systemSettings'
+import { audiobookApi } from '@/api/audiobook'
 import { useWebSocket, WS_EVENTS } from '@/hooks/useWebSocket'
-import type { SystemInfo, Library, User, TranscodeJob, TMDbConfigStatus, DoubanConfigStatus, DoubanImportTokenInfo, DoubanImportTokenStatus, SystemSettings } from '@/types'
+import type { SystemInfo, Library, User, TranscodeJob, TMDbConfigStatus, DoubanConfigStatus, DoubanImportTokenInfo, DoubanImportTokenStatus } from '@/types'
 import type { ScanProgressData, ScrapeProgressData, TranscodeProgressData, ScanPhaseData } from '@/hooks/useWebSocket'
+import toast from 'react-hot-toast'
 import {
   Server,
   Users,
@@ -19,6 +23,7 @@ import {
   WifiOff,
   LayoutDashboard,
   FolderOpen,
+  Files,
   ListTodo,
   Activity,
   Search,
@@ -28,6 +33,7 @@ import {
   Trash2,
   Sparkles,
   HardDrive,
+  Headphones,
   Zap as ZapIcon,
   Copy as CopyIcon,
   ClipboardPaste,
@@ -35,6 +41,7 @@ import {
   RefreshCw,
   FileText,
   Layers,
+  Subtitles,
 } from 'lucide-react'
 import clsx from 'clsx'
 import LibraryManager from '@/components/LibraryManager'
@@ -50,10 +57,17 @@ import ClassificationTab from '@/components/admin/ClassificationTab'
 import { useTranslation } from '@/i18n'
 import { useDialog } from '@/components/Dialog'
 
+const FileManagerPage = lazy(() => import('@/pages/FileManagerPage'))
+const PreprocessPage = lazy(() => import('@/pages/PreprocessPage'))
+const SubtitlePreprocessPage = lazy(() => import('@/pages/SubtitlePreprocessPage'))
+
 // ==================== 标签页定义 ====================
 const TABS = [
   { id: 'dashboard', labelKey: 'admin.tabDashboard', icon: LayoutDashboard, shortLabelKey: 'admin.shortDashboard' },
   { id: 'library', labelKey: 'admin.tabLibrary', icon: FolderOpen, shortLabelKey: 'admin.shortLibrary' },
+  { id: 'files', labelKey: 'admin.tabFiles', icon: Files, shortLabelKey: 'admin.shortFiles' },
+  { id: 'preprocess', labelKey: 'admin.tabPreprocess', icon: Zap, shortLabelKey: 'admin.shortPreprocess' },
+  { id: 'subtitlePreprocess', labelKey: 'admin.tabSubtitlePreprocess', icon: Subtitles, shortLabelKey: 'admin.shortSubtitlePreprocess' },
   { id: 'users', labelKey: 'admin.tabUsers', icon: Users, shortLabelKey: 'admin.shortUsers' },
   { id: 'tasks', labelKey: 'admin.tabTasks', icon: ListTodo, shortLabelKey: 'admin.shortTasks' },
   { id: 'logs', labelKey: 'admin.tabLogs', icon: FileText, shortLabelKey: 'admin.shortLogs' },
@@ -227,28 +241,25 @@ export default function AdminPage() {
   const [scanning, setScanning] = useState<Set<string>>(new Set())
 
   // 系统全局设置
-  const [sysSettings, setSysSettings] = useState<SystemSettings>({
-    enable_gpu_transcode: true,
-    gpu_fallback_cpu: true,
-    metadata_store_path: '',
-    play_cache_path: '',
-    enable_direct_link: false,
-    auto_preprocess_on_scan: false,
-    auto_transcode_on_play: false,
-    prefer_direct_play: true,
-  })
+  const { settings: sysSettings, setSettings: setSysSettings, fetchSettings } = useSystemSettingsStore()
 
   // TMDb 配置状态
   const [tmdbConfig, setTmdbConfig] = useState<TMDbConfigStatus | null>(null)
+  const [tmdbEnabled, setTmdbEnabled] = useState(true)
   const [tmdbKeyInput, setTmdbKeyInput] = useState('')
   const [tmdbEditing, setTmdbEditing] = useState(false)
   const [tmdbShowKey, setTmdbShowKey] = useState(false)
   const [tmdbSaving, setTmdbSaving] = useState(false)
   const [tmdbTesting, setTmdbTesting] = useState(false)
   const [tmdbMessage, setTmdbMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null)
+  // TMDb 代理配置
+  const [tmdbApiProxyInput, setTmdbApiProxyInput] = useState('')
+  const [tmdbImageProxyInput, setTmdbImageProxyInput] = useState('')
+  const [tmdbProxySaving, setTmdbProxySaving] = useState(false)
 
   // 豆瓣 Cookie 配置状态
   const [doubanConfig, setDoubanConfig] = useState<DoubanConfigStatus | null>(null)
+  const [doubanEnabled, setDoubanEnabled] = useState(true)
   const [doubanCookieInput, setDoubanCookieInput] = useState('')
   const [doubanEditing, setDoubanEditing] = useState(false)
   const [doubanShowCookie, setDoubanShowCookie] = useState(false)
@@ -270,6 +281,9 @@ export default function AdminPage() {
   const [transcodeProgress, setTranscodeProgress] = useState<Record<string, TranscodeProgressData>>({})
   const [scanPhase, setScanPhase] = useState<Record<string, ScanPhaseData>>({})
   const [realtimeMessages, setRealtimeMessages] = useState<string[]>([])
+
+  // 喜马拉雅刮削状态
+  const [ximalayaScrapingLibs, setXimalayaScrapingLibs] = useState<Set<string>>(new Set())
 
   // 标签页切换 — 同步到 URL hash
   const switchTab = useCallback((tab: TabId) => {
@@ -319,6 +333,9 @@ export default function AdminPage() {
 
     const handleScrapeStarted = (data: ScrapeProgressData) => {
       setScrapeProgress((prev) => ({ ...prev, [data.library_id || 'default']: data }))
+      if (data.library_id) {
+        setScanning((s) => new Set(s).add(data.library_id))
+      }
       addMessage(`🎨 ${data.message}`)
     }
     const handleScrapeProgress = (data: ScrapeProgressData) => {
@@ -335,6 +352,7 @@ export default function AdminPage() {
         if (data.library_id) ns.delete(data.library_id)
         return ns
       })
+      toast.success(data.message)
       addMessage(`✨ ${data.message}`)
     }
 
@@ -378,6 +396,9 @@ export default function AdminPage() {
         libraryApi.list().then((res) => setLibraries(res.data.data || []))
       } else {
         setScanPhase((prev) => ({ ...prev, [data.library_id]: data }))
+        if (data.library_id) {
+          setScanning((s) => new Set(s).add(data.library_id))
+        }
         addMessage(`📦 ${data.message}`)
       }
     }
@@ -415,22 +436,28 @@ export default function AdminPage() {
   useEffect(() => {
     const loadAll = async () => {
       try {
-        const [sysRes, libRes, userRes, transRes, tmdbRes, doubanRes, settingsRes] = await Promise.all([
+        const [sysRes, libRes, userRes, transRes, tmdbRes, doubanRes, scraperRes, settingsRes] = await Promise.all([
           adminApi.systemInfo(),
           libraryApi.list(),
           adminApi.listUsers(),
           adminApi.transcodeStatus(),
           adminApi.getTMDbConfig(),
           adminApi.getDoubanConfig(),
-          adminApi.getSystemSettings(),
+          adminApi.getScraperEnabledConfig(),
         ])
         setSystemInfo(sysRes.data.data)
         setLibraries(libRes.data.data || [])
         setUsers(userRes.data.data || [])
         setTranscodeJobs(transRes.data.data || [])
         setTmdbConfig(tmdbRes.data.data)
+        setTmdbApiProxyInput(tmdbRes.data.data.api_proxy || '')
+        setTmdbImageProxyInput(tmdbRes.data.data.image_proxy || '')
         setDoubanConfig(doubanRes.data.data)
-        if (settingsRes.data.data) setSysSettings(settingsRes.data.data)
+        if (scraperRes.data.data) {
+          setTmdbEnabled(scraperRes.data.data.tmdb_scraper_enabled)
+          setDoubanEnabled(scraperRes.data.data.douban_scraper_enabled)
+        }
+        await fetchSettings()
       } catch {
         // 静默处理
       }
@@ -506,6 +533,48 @@ export default function AdminPage() {
       showTmdbMessage('error', msg)
     } finally {
       setTmdbTesting(false)
+    }
+  }
+
+  // 保存 TMDb 代理配置
+  const handleSaveTMDbProxy = async () => {
+    setTmdbProxySaving(true)
+    try {
+      const res = await adminApi.updateTMDbProxy(tmdbApiProxyInput.trim(), tmdbImageProxyInput.trim())
+      setTmdbConfig(prev => prev ? {
+        ...prev,
+        api_proxy: res.data.data.api_proxy,
+        image_proxy: res.data.data.image_proxy,
+      } : null)
+      showTmdbMessage('success', t('admin.tmdbProxySaved'))
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || t('admin.tmdbProxySaveFailed')
+      showTmdbMessage('error', msg)
+    } finally {
+      setTmdbProxySaving(false)
+    }
+  }
+
+  // ==================== 刮削数据源启停操作 ====================
+  const handleToggleTMDbEnabled = async () => {
+    const next = !tmdbEnabled
+    setTmdbEnabled(next)
+    try {
+      await adminApi.updateScraperEnabledConfig({ tmdb_scraper_enabled: next })
+    } catch {
+      setTmdbEnabled(!next)
+      toast.error('切换 TMDB 刮削开关失败')
+    }
+  }
+
+  const handleToggleDoubanEnabled = async () => {
+    const next = !doubanEnabled
+    setDoubanEnabled(next)
+    try {
+      await adminApi.updateScraperEnabledConfig({ douban_scraper_enabled: next })
+    } catch {
+      setDoubanEnabled(!next)
+      toast.error('切换豆瓣刮削开关失败')
     }
   }
 
@@ -688,6 +757,38 @@ export default function AdminPage() {
     return () => clearInterval(timer)
   }, [doubanImportOpen, doubanImportInfo, doubanImportStatus?.status])
 
+  // ==================== 喜马拉雅刮削操作 ====================
+  const handleXimalayaScrape = async (libraryId: string) => {
+    setXimalayaScrapingLibs((prev) => new Set(prev).add(libraryId))
+    try {
+      await audiobookApi.scrapeAll(libraryId)
+    } catch {
+      toast.error('启动刮削失败')
+      setXimalayaScrapingLibs((prev) => {
+        const next = new Set(prev)
+        next.delete(libraryId)
+        return next
+      })
+    }
+  }
+
+  // 监听刮削完成事件，更新刮削状态
+  useEffect(() => {
+    const handleScrapeCompleted = (data: ScrapeProgressData) => {
+      if (data.library_id) {
+        setXimalayaScrapingLibs((prev) => {
+          const next = new Set(prev)
+          next.delete(data.library_id)
+          return next
+        })
+      }
+    }
+    on(WS_EVENTS.SCRAPE_COMPLETED, handleScrapeCompleted)
+    return () => {
+      off(WS_EVENTS.SCRAPE_COMPLETED, handleScrapeCompleted)
+    }
+  }, [on, off])
+
   // ==================== 搜索匹配 ====================
   // 快捷导航条目
   const quickNavItems = useMemo(() => {
@@ -712,7 +813,7 @@ export default function AdminPage() {
   const hasActiveProgress = Object.keys(scanProgress).length > 0 || Object.keys(scrapeProgress).length > 0 || Object.keys(transcodeProgress).length > 0
 
   return (
-    <div className="space-y-0">
+    <div className="space-y-0 pr-20">
       {/* ==================== 顶部标题栏 ==================== */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-4">
@@ -727,7 +828,7 @@ export default function AdminPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="input pl-9 pr-3 py-1.5 text-sm w-48 lg:w-64"
+                className="input pl-9 pr-3 py-2 text-sm w-48 lg:w-64"
                 placeholder={t('admin.searchPlaceholder')}
               />
               {/* 搜索结果下拉 */}
@@ -762,7 +863,9 @@ export default function AdminPage() {
               )}
             </div>
             {/* WebSocket 状态 */}
-            <div className="flex items-center gap-2 text-xs">
+            <div className="flex items-center gap-2 text-xs rounded-xl px-2 py-2.5"
+              style={{ border: '1px solid var(--border-default)' }}
+            >
               {connected ? (
                 <span className="flex items-center gap-1.5 text-neon">
                   <Wifi size={14} />
@@ -794,8 +897,6 @@ export default function AdminPage() {
         {activeTab === 'dashboard' && (
           <DashboardTab
             systemInfo={systemInfo}
-            sysSettings={sysSettings}
-            setSysSettings={setSysSettings}
             scanProgress={scanProgress}
             scrapeProgress={scrapeProgress}
             transcodeProgress={transcodeProgress}
@@ -817,14 +918,32 @@ export default function AdminPage() {
               scanProgress={scanProgress}
               scrapeProgress={scrapeProgress}
               scanPhase={scanPhase}
+              tmdbEnabled={tmdbEnabled}
+              doubanEnabled={doubanEnabled}
             />
 
-            {/* TMDb 元数据刮削配置 */}
+            {/* TMDB元数据刮削配置 */}
             <section>
               <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-semibold tracking-wide" style={{ color: 'var(--text-primary)' }}>
                 <Film size={20} className="text-neon/60" />
-                {t('admin.metadataConfig')}
+                TMDB元数据刮削配置
+                <button
+                  onClick={handleToggleTMDbEnabled}
+                  className={clsx(
+                    'ml-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors',
+                    tmdbEnabled
+                      ? 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
+                      : 'bg-surface-400/10 text-surface-400 hover:bg-surface-400/20'
+                  )}
+                >
+                  <span className={clsx(
+                    'inline-block h-1.5 w-1.5 rounded-full',
+                    tmdbEnabled ? 'bg-green-400' : 'bg-surface-400'
+                  )} />
+                  {tmdbEnabled ? '已启用' : '已禁用'}
+                </button>
               </h2>
+              {tmdbEnabled ? (
               <div className="glass-panel rounded-xl p-5">
                 {/* 说明信息 */}
                 <div className="mb-5 rounded-lg p-4" style={{ background: 'var(--nav-hover-bg)', border: '1px solid var(--border-default)' }}>
@@ -954,48 +1073,103 @@ export default function AdminPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      onClick={() => setTmdbEditing(true)}
-                      className="btn-primary gap-1.5 px-4 py-2 text-sm"
-                    >
-                      <Key size={14} />
-                      {tmdbConfig?.configured ? t('admin.modifyApiKey') : t('admin.configApiKey')}
-                    </button>
-                    {tmdbConfig?.configured && (
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
-                        onClick={handleTestTMDbKey}
-                        disabled={tmdbTesting}
-                        className="btn-ghost gap-1.5 px-4 py-2 text-sm disabled:opacity-50"
-                        title={t('admin.tmdbTestSavedHint')}
+                        onClick={() => setTmdbEditing(true)}
+                        className="btn-primary gap-1.5 px-4 py-2 text-sm"
                       >
-                        {tmdbTesting ? (
-                          <>
-                            <Loader2 size={14} className="animate-spin" />
-                            {t('admin.tmdbTesting')}
-                          </>
-                        ) : (
-                          <>
-                            <Wifi size={14} />
-                            {t('admin.tmdbTestConnection')}
-                          </>
-                        )}
+                        <Key size={14} />
+                        {tmdbConfig?.configured ? t('admin.modifyApiKey') : t('admin.configApiKey')}
                       </button>
-                    )}
-                    {tmdbConfig?.configured && (
-                      <button
-                        onClick={handleClearTMDbKey}
-                        className="btn-ghost gap-1.5 px-4 py-2 text-sm text-red-400 hover:text-red-300"
-                      >
-                        <Trash2 size={14} />
-                        {t('admin.clearKey')}
-                      </button>
-                    )}
+                      {tmdbConfig?.configured && (
+                        <button
+                          onClick={handleTestTMDbKey}
+                          disabled={tmdbTesting}
+                          className="btn-ghost gap-1.5 px-4 py-2 text-sm disabled:opacity-50"
+                          title={t('admin.tmdbTestSavedHint')}
+                        >
+                          {tmdbTesting ? (
+                            <>
+                              <Loader2 size={14} className="animate-spin" />
+                              {t('admin.tmdbTesting')}
+                            </>
+                          ) : (
+                            <>
+                              <Wifi size={14} />
+                              {t('admin.tmdbTestConnection')}
+                            </>
+                          )}
+                        </button>
+                      )}
+                      {tmdbConfig?.configured && (
+                        <button
+                          onClick={handleClearTMDbKey}
+                          className="btn-ghost gap-1.5 px-4 py-2 text-sm text-red-400 hover:text-red-300"
+                        >
+                          <Trash2 size={14} />
+                          {t('admin.clearKey')}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* 代理配置（与 API Key 状态同一区域） */}
+                    <div className="flex flex-wrap gap-3">
+                      <div className="flex-1 min-w-[200px]">
+                        <label className="mb-1.5 block text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+                          {t('admin.tmdbApiProxyLabel')}
+                        </label>
+                        <input
+                          type="text"
+                          value={tmdbApiProxyInput}
+                          onChange={(e) => setTmdbApiProxyInput(e.target.value)}
+                          className="input text-sm"
+                          placeholder={t('admin.tmdbApiProxyPlaceholder')}
+                        />
+                        <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+                          {t('admin.tmdbApiProxyHint')}
+                        </p>
+                      </div>
+                      <div className="flex-1 min-w-[200px]">
+                        <label className="mb-1.5 block text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+                          {t('admin.tmdbImageProxyLabel')}
+                        </label>
+                        <input
+                          type="text"
+                          value={tmdbImageProxyInput}
+                          onChange={(e) => setTmdbImageProxyInput(e.target.value)}
+                          className="input text-sm"
+                          placeholder={t('admin.tmdbImageProxyPlaceholder')}
+                        />
+                        <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+                          {t('admin.tmdbImageProxyHint')}
+                        </p>
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          onClick={handleSaveTMDbProxy}
+                          disabled={tmdbProxySaving}
+                          className="btn-primary gap-1.5 px-4 py-2 text-sm disabled:opacity-50"
+                        >
+                          {tmdbProxySaving ? (
+                            <>
+                              <Loader2 size={14} className="animate-spin" />
+                              {t('admin.saving')}
+                            </>
+                          ) : (
+                            <>
+                              <Check size={14} />
+                              {t('common.save')}
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
 
                 {/* 功能说明 */}
-                <div className="mt-5 pt-4" style={{ borderTop: '1px solid var(--border-default)' }}>
+                <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border-default)' }}>
                   <p className="text-xs font-medium text-surface-400 mb-2">{t('admin.configFeatures')}</p>
                   <ul className="space-y-1.5 text-xs text-surface-500">
                     <li className="flex items-center gap-2">
@@ -1028,6 +1202,13 @@ export default function AdminPage() {
                   </ul>
                 </div>
               </div>
+              ) : (
+                <div className="glass-panel rounded-xl p-5">
+                  <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                    TMDb 刮削已禁用，启用后可配置 API Key 与代理地址。
+                  </p>
+                </div>
+              )}
             </section>
 
             {/* ===== 豆瓣 Cookie 配置卡片 ===== */}
@@ -1035,7 +1216,23 @@ export default function AdminPage() {
               <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-semibold tracking-wide" style={{ color: 'var(--text-primary)' }}>
                 <Film size={20} className="text-neon/60" />
                 豆瓣刮削登录配置
+                <button
+                  onClick={handleToggleDoubanEnabled}
+                  className={clsx(
+                    'ml-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors',
+                    doubanEnabled
+                      ? 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
+                      : 'bg-surface-400/10 text-surface-400 hover:bg-surface-400/20'
+                  )}
+                >
+                  <span className={clsx(
+                    'inline-block h-1.5 w-1.5 rounded-full',
+                    doubanEnabled ? 'bg-green-400' : 'bg-surface-400'
+                  )} />
+                  {doubanEnabled ? '已启用' : '已禁用'}
+                </button>
               </h2>
+              {doubanEnabled ? (
               <div className="glass-panel rounded-xl p-5">
                 {/* 说明信息 */}
                 <div className="mb-5 rounded-lg p-4" style={{ background: 'var(--nav-hover-bg)', border: '1px solid var(--border-default)' }}>
@@ -1197,8 +1394,143 @@ export default function AdminPage() {
                   </p>
                 </div>
               </div>
+              ) : (
+                <div className="glass-panel rounded-xl p-5">
+                  <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                    豆瓣刮削已禁用，启用后可配置登录 Cookie。
+                  </p>
+                </div>
+              )}
             </section>
+
+            {/* ===== 喜马拉雅刮削配置 ===== */}
+            {libraries.some((l) => l.type === 'audiobook') && (
+              <section>
+                <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-semibold tracking-wide" style={{ color: 'var(--text-primary)' }}>
+                  <Headphones size={20} className="text-purple-400/60" />
+                  喜马拉雅刮削配置
+                </h2>
+                <div className="glass-panel rounded-xl p-5">
+                  <div className="mb-5 rounded-lg p-4" style={{ background: 'var(--nav-hover-bg)', border: '1px solid var(--border-default)' }}>
+                    <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                      喜马拉雅刮削仅针对<span className="font-medium text-purple-400">有声书</span>媒体库，通过喜马拉雅 FM 平台搜索并获取有声书的
+                      标题、作者、简介、封面等元数据信息。
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    {libraries.filter((l) => l.type === 'audiobook').map((lib) => {
+                      const isScraping = ximalayaScrapingLibs.has(lib.id)
+                      const prog = scrapeProgress[lib.id]
+                      const progressPercent = prog && prog.total > 0
+                        ? Math.round((prog.current / prog.total) * 100)
+                        : 0
+
+                      return (
+                        <div
+                          key={lib.id}
+                          className="flex items-center gap-4 rounded-xl p-4"
+                          style={{ background: 'var(--surface-alt)', border: '1px solid var(--border-light)' }}
+                        >
+                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-500/10 flex-shrink-0">
+                            <Headphones size={18} className="text-purple-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                                {lib.name}
+                              </span>
+                              {prog && (
+                                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                  {prog.current}/{prog.total}
+                                </span>
+                              )}
+                            </div>
+                            {prog ? (
+                              <div className="mt-2">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <div className="flex-1 h-1.5 rounded-full" style={{ background: 'var(--border-default)' }}>
+                                    <div
+                                      className="h-1.5 rounded-full transition-all duration-300"
+                                      style={{
+                                        width: `${progressPercent}%`,
+                                        background: 'linear-gradient(90deg, #8B5CF6, #A78BFA)',
+                                      }}
+                                    />
+                                  </div>
+                                  <span className="text-xs flex-shrink-0" style={{ color: 'var(--text-muted)' }}>
+                                    {progressPercent}%
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--text-muted)' }}>
+                                  <span>成功 {prog.success ?? 0}</span>
+                                  {prog.failed > 0 && <span className="text-red-400">失败 {prog.failed}</span>}
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                                点击"开始刮削"按钮通过喜马拉雅获取元数据
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => handleXimalayaScrape(lib.id)}
+                            disabled={isScraping}
+                            className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-all flex-shrink-0 disabled:opacity-50"
+                            style={{
+                              background: isScraping ? 'var(--nav-hover-bg)' : 'linear-gradient(135deg, #8B5CF6, #7C3AED)',
+                              color: isScraping ? 'var(--text-muted)' : '#fff',
+                              border: isScraping ? '1px solid var(--border-default)' : 'none',
+                            }}
+                          >
+                            {isScraping ? (
+                              <>
+                                <Loader2 size={14} className="animate-spin" />
+                                刮削中...
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles size={14} />
+                                开始刮削
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  <div className="mt-5 pt-4" style={{ borderTop: '1px solid var(--border-default)' }}>
+                    <p className="text-xs text-surface-500 leading-relaxed">
+                      ⚠️ <span className="font-medium text-surface-400">注意</span>：刮削过程会访问喜马拉雅 FM 平台，请确保网络连接正常。刮削速度取决于有声书数量和网络状况。
+                    </p>
+                  </div>
+                </div>
+              </section>
+            )}
+
           </div>
+        )}
+
+        {/* ===== 文件管理标签页 ===== */}
+        {activeTab === 'files' && (
+          <Suspense fallback={<div className="flex items-center justify-center py-20"><Loader2 size={32} className="animate-spin text-neon" /></div>}>
+            <FileManagerPage />
+          </Suspense>
+        )}
+
+        {/* ===== 视频预处理标签页 ===== */}
+        {activeTab === 'preprocess' && (
+          <Suspense fallback={<div className="flex items-center justify-center py-20"><Loader2 size={32} className="animate-spin text-neon" /></div>}>
+            <PreprocessPage />
+          </Suspense>
+        )}
+
+        {/* ===== 字幕预处理标签页 ===== */}
+        {activeTab === 'subtitlePreprocess' && (
+          <Suspense fallback={<div className="flex items-center justify-center py-20"><Loader2 size={32} className="animate-spin text-neon" /></div>}>
+            <SubtitlePreprocessPage />
+          </Suspense>
         )}
 
         {/* ===== 用户管理标签页 ===== */}

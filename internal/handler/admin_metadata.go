@@ -20,8 +20,10 @@ func (h *AdminHandler) GetTMDbConfig(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
-			"configured": configured,
-			"masked_key": maskedKey,
+			"configured":  configured,
+			"masked_key":  maskedKey,
+			"api_proxy":   h.cfg.Secrets.TMDbAPIProxy,
+			"image_proxy": h.cfg.Secrets.TMDbImageProxy,
 		},
 	})
 }
@@ -73,8 +75,50 @@ func (h *AdminHandler) ClearTMDbConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "TMDb API Key 已清除",
 		"data": gin.H{
-			"configured": false,
-			"masked_key": "",
+			"configured":      false,
+			"masked_key":      "",
+			"api_proxy":       "",
+			"image_proxy":     "",
+			"dns_server":      "",
+			"hosts_overrides": "",
+		},
+	})
+}
+
+// UpdateTMDbProxyRequest 更新 TMDb 代理配置请求
+type UpdateTMDbProxyRequest struct {
+	APIProxy   string `json:"api_proxy"`
+	ImageProxy string `json:"image_proxy"`
+}
+
+// UpdateTMDbProxy 更新 TMDb 代理配置
+// POST /api/admin/settings/tmdb/proxy
+func (h *AdminHandler) UpdateTMDbProxy(c *gin.Context) {
+	var req UpdateTMDbProxyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数格式不正确"})
+		return
+	}
+
+	// 使用已有的配置方法更新代理地址
+	if err := h.cfg.SetTMDbAPIProxy(strings.TrimSpace(req.APIProxy)); err != nil {
+		h.logger.Errorf("保存 TMDb API 代理配置失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败: " + err.Error()})
+		return
+	}
+
+	if err := h.cfg.SetTMDbImageProxy(strings.TrimSpace(req.ImageProxy)); err != nil {
+		h.logger.Errorf("保存 TMDb 图片代理配置失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败: " + err.Error()})
+		return
+	}
+
+	h.logger.Info("TMDb 代理配置已更新")
+	c.JSON(http.StatusOK, gin.H{
+		"message": "TMDb 代理配置已更新",
+		"data": gin.H{
+			"api_proxy":   h.cfg.Secrets.TMDbAPIProxy,
+			"image_proxy": h.cfg.Secrets.TMDbImageProxy,
 		},
 	})
 }
@@ -94,7 +138,7 @@ func (h *AdminHandler) ValidateTMDbConfig(c *gin.Context) {
 		return
 	}
 
-	ok, msg := h.metadataService.PingTMDb("")
+	ok, msg := h.metadataService.PingTMDb(h.cfg.GetTMDbAPIKey())
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
 			"valid":   ok,
@@ -236,7 +280,13 @@ func (h *AdminHandler) UnmatchSeriesMetadata(c *gin.Context) {
 func (h *AdminHandler) ScrapeSeriesMetadata(c *gin.Context) {
 	seriesID := c.Param("seriesId")
 
-	if err := h.metadataService.ScrapeSeries(seriesID); err != nil {
+	var req struct {
+		ReplaceImages bool   `json:"replace_images"`
+		Mode          string `json:"mode"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	if err := h.metadataService.ScrapeSeriesWithMode(seriesID, req.ReplaceImages, req.Mode); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "刷新元数据失败: " + err.Error()})
 		return
 	}
@@ -606,6 +656,57 @@ func (h *AdminHandler) ValidateDoubanConfig(c *gin.Context) {
 			"valid":    true,
 			"username": username,
 			"message":  msg,
+		},
+	})
+}
+
+// ==================== 刮削数据源启停配置 ====================
+
+// GetScraperEnabledConfig 获取 TMDB 和豆瓣刮削开关状态
+func (h *AdminHandler) GetScraperEnabledConfig(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"data": gin.H{
+			"tmdb_scraper_enabled":   h.cfg.GetTMDbScraperEnabled(),
+			"douban_scraper_enabled": h.cfg.GetDoubanScraperEnabled(),
+		},
+	})
+}
+
+// UpdateScraperEnabledConfig 更新 TMDB 或豆瓣刮削开关
+func (h *AdminHandler) UpdateScraperEnabledConfig(c *gin.Context) {
+	var req struct {
+		TMDbScraperEnabled   *bool `json:"tmdb_scraper_enabled"`
+		DoubanScraperEnabled *bool `json:"douban_scraper_enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数无效"})
+		return
+	}
+
+	var errs []string
+
+	if req.TMDbScraperEnabled != nil {
+		if err := h.cfg.SetTMDbScraperEnabled(*req.TMDbScraperEnabled); err != nil {
+			errs = append(errs, "保存 TMDb 开关失败: "+err.Error())
+		}
+	}
+
+	if req.DoubanScraperEnabled != nil {
+		if err := h.cfg.SetDoubanScraperEnabled(*req.DoubanScraperEnabled); err != nil {
+			errs = append(errs, "保存豆瓣开关失败: "+err.Error())
+		}
+	}
+
+	if len(errs) > 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": strings.Join(errs, "; ")})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "刮削配置已更新",
+		"data": gin.H{
+			"tmdb_scraper_enabled":   h.cfg.GetTMDbScraperEnabled(),
+			"douban_scraper_enabled": h.cfg.GetDoubanScraperEnabled(),
 		},
 	})
 }

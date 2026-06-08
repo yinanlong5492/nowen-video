@@ -153,9 +153,13 @@ func (s *DoubanService) ApplyDoubanData(media *model.Media, searchTitle string, 
 
 // applyDoubanResult 将豆瓣结果应用到媒体（仅补充缺失字段）
 func (s *DoubanService) applyDoubanResult(media *model.Media, result *DoubanSearchResult) {
+	// 保存豆瓣 ID，用于后续精确匹配和关联
+	if media.DoubanID == "" && result.ID != "" {
+		media.DoubanID = result.ID
+	}
+
 	// 仅补充缺失的评分（豆瓣评分作为参考）
 	if media.Rating == 0 && result.Rating > 0 {
-		// 豆瓣满分10分，直接使用
 		media.Rating = result.Rating
 	}
 
@@ -392,48 +396,6 @@ func (s *DoubanService) downloadDoubanCover(media *model.Media, coverURL string)
 
 	s.logger.Debugf("已下载豆瓣封面: %s", localPath)
 	return localPath, nil
-}
-
-// parseDoubanTitle 从文件标题中提取搜索关键词（与metadata.go相同逻辑）
-func (s *DoubanService) parseDoubanTitle(title string) (string, int) {
-	// 优先使用统一增强解析器（支持《》【广告】[站点]XX届 115chrome 等脏命名）
-	probe := title
-	if filepath.Ext(probe) == "" {
-		probe = probe + ".mkv"
-	}
-	if parsed := ParseMovieFilename(probe); parsed.Title != "" {
-		return parsed.Title, parsed.Year
-	}
-
-	yearRegex := regexp.MustCompile(`[\s\.(]\s*((?:19|20)\d{2})\s*[\s\).]?`)
-	matches := yearRegex.FindStringSubmatch(title)
-
-	var year int
-	cleanTitle := title
-
-	if len(matches) >= 2 {
-		year, _ = strconv.Atoi(matches[1])
-		cleanTitle = yearRegex.ReplaceAllString(title, " ")
-	}
-
-	cleanPatterns := []string{
-		`(?i)\b(BluRay|BDRip|HDRip|WEB-?DL|WEBRip|DVDRip|HDTV|HDCam)\b`,
-		`(?i)\b(x264|x265|h\.?264|h\.?265|HEVC|AVC|AAC|DTS|AC3|FLAC)\b`,
-		`(?i)\b(1080p|720p|480p|2160p|4K|UHD)\b`,
-		`(?i)\b(REMUX|PROPER|REPACK|EXTENDED|UNRATED|DIRECTORS\.?CUT)\b`,
-		`(?i)\[.*?\]`,
-		`(?i)\(.*?\)`,
-	}
-
-	for _, pattern := range cleanPatterns {
-		re := regexp.MustCompile(pattern)
-		cleanTitle = re.ReplaceAllString(cleanTitle, " ")
-	}
-
-	cleanTitle = regexp.MustCompile(`\s+`).ReplaceAllString(cleanTitle, " ")
-	cleanTitle = strings.TrimSpace(cleanTitle)
-
-	return cleanTitle, year
 }
 
 // absInt 取绝对值（int版本）

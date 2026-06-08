@@ -1,11 +1,14 @@
 import { useState, useCallback } from 'react'
 import type { Media } from '@/types'
+import { getAudioBookCoverUrl } from '@/api'
 import {
   CheckSquare,
   Square,
   Film,
   Tv,
   FileVideo,
+  Music,
+  Headphones,
   Eye,
   Edit3,
   Sparkles,
@@ -212,6 +215,20 @@ export default function FileListView({
     )
   }
 
+  const getMediaPosterUrl = (file: Media) => {
+    if (file.media_type === 'audiobook') {
+      const chIdx = file.id.indexOf('_ch_')
+      const bookId = chIdx > 0 ? file.id.substring(0, chIdx) : file.id
+      return getAudioBookCoverUrl(bookId)
+    }
+    if (file.media_type === 'music') {
+      const apiRoot = (window as any).$apiRoot || ''
+      const token = localStorage.getItem('token') || ''
+      return `${apiRoot}/music/tracks/${file.id}/cover?token=${token}`
+    }
+    return streamApi.getPosterUrl(file.id)
+  }
+
   const isScraped = (file: Media) => {
     const st = file.scrape_status
     if (st === 'scraped' || st === 'partial' || st === 'manual') return true
@@ -322,7 +339,7 @@ export default function FileListView({
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-3">
                         <img
-                          src={streamApi.getPosterUrl(file.id)}
+                          src={getMediaPosterUrl(file)}
                           alt=""
                           className="w-8 h-12 rounded object-cover flex-shrink-0"
                           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden') }}
@@ -354,10 +371,16 @@ export default function FileListView({
                     </td>
                     <td className="px-3 py-3 hidden md:table-cell">
                       <span className={clsx('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs',
-                        file.media_type === 'movie' ? 'bg-purple-500/10 text-purple-400' : 'bg-green-500/10 text-green-400'
+                        file.media_type === 'movie' ? 'bg-purple-500/10 text-purple-400' :
+                        file.media_type === 'music' ? 'bg-pink-500/10 text-pink-400' :
+                        file.media_type === 'audiobook' ? 'bg-amber-500/10 text-amber-400' : 'bg-green-500/10 text-green-400'
                       )}>
-                        {file.media_type === 'movie' ? <Film size={12} /> : <Tv size={12} />}
-                        {file.media_type === 'movie' ? '电影' : '剧集'}
+                        {file.media_type === 'movie' ? <Film size={12} /> :
+                         file.media_type === 'music' ? <Music size={12} /> :
+                         file.media_type === 'audiobook' ? <Headphones size={12} /> : <Tv size={12} />}
+                        {file.media_type === 'movie' ? '电影' :
+                         file.media_type === 'music' ? '音乐' :
+                         file.media_type === 'audiobook' ? '有声书' : '剧集'}
                       </span>
                     </td>
                     <td className="px-3 py-3 hidden lg:table-cell" style={{ color: 'var(--text-secondary)' }}>
@@ -417,7 +440,7 @@ export default function FileListView({
               {/* 海报 */}
               <div className="aspect-[2/3] bg-surface-800 relative">
                 <img
-                  src={streamApi.getPosterUrl(file.id)}
+                  src={getMediaPosterUrl(file)}
                   alt=""
                   className="w-full h-full object-cover"
                   onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
@@ -458,8 +481,12 @@ export default function FileListView({
                 <div className="flex items-center gap-2 mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>
                   <span>{file.year || '-'}</span>
                   {file.rating > 0 && <span className="text-amber-400">★ {file.rating.toFixed(1)}</span>}
-                  <span className={file.media_type === 'movie' ? 'text-purple-400' : 'text-green-400'}>
-                    {file.media_type === 'movie' ? '电影' : '剧集'}
+                  <span className={file.media_type === 'movie' ? 'text-purple-400' :
+                                  file.media_type === 'music' ? 'text-pink-400' :
+                                  file.media_type === 'audiobook' ? 'text-amber-400' : 'text-green-400'}>
+                    {file.media_type === 'movie' ? '电影' :
+                     file.media_type === 'music' ? '音乐' :
+                     file.media_type === 'audiobook' ? '有声书' : '剧集'}
                   </span>
                 </div>
               </div>

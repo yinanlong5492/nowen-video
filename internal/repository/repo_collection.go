@@ -178,9 +178,10 @@ func (r *MovieCollectionRepo) ListWithOptions(page, size int, sort, autoFilter, 
 	var total int64
 
 	query := r.db.Model(&model.MovieCollection{}).Where("media_count > 0")
-	if autoFilter == "true" {
+	switch autoFilter {
+	case "true":
 		query = query.Where("auto_matched = ?", true)
-	} else if autoFilter == "false" {
+	case "false":
 		query = query.Where("auto_matched = ?", false)
 	}
 	if libraryID != "" {

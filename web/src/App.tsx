@@ -12,8 +12,10 @@ import { DesktopEventBinder, DesktopServerPicker, UpdateBanner } from '@/desktop
 
 // 懒加载页面组件 — 按需加载，减少首屏 JS 体积
 const HomePage = lazy(() => import('@/pages/HomePage'))
-const LibraryPage = lazy(() => import('@/pages/LibraryPage'))
+const LibraryPage = lazy(() => import('@/pages/Library'))
+const MediaRouter = lazy(() => import('@/pages/MediaRouter'))
 const MediaDetailPage = lazy(() => import('@/pages/MediaDetailPage'))
+const EpisodeDetailPage = lazy(() => import('@/pages/EpisodeDetailPage'))
 const PlayerPage = lazy(() => import('@/pages/PlayerPage'))
 const SearchPage = lazy(() => import('@/pages/SearchPage'))
 const FavoritesPage = lazy(() => import('@/pages/FavoritesPage'))
@@ -21,8 +23,8 @@ const HistoryPage = lazy(() => import('@/pages/HistoryPage'))
 const PlaylistsPage = lazy(() => import('@/pages/PlaylistsPage'))
 const AdminPage = lazy(() => import('@/pages/AdminPage'))
 const SeriesDetailPage = lazy(() => import('@/pages/SeriesDetailPage'))
+const SeasonDetailPage = lazy(() => import('@/pages/SeasonDetailPage'))
 const ProfilePage = lazy(() => import('@/pages/ProfilePage'))
-const StatsPage = lazy(() => import('@/pages/StatsPage'))
 const FileManagerPage = lazy(() => import('@/pages/FileManagerPage'))
 const PulsePage = lazy(() => import('@/pages/PulsePage'))
 const PreprocessPage = lazy(() => import('@/pages/PreprocessPage'))
@@ -31,6 +33,7 @@ const BrowsePage = lazy(() => import('@/pages/BrowsePage'))
 const PersonDetailPage = lazy(() => import('@/pages/PersonDetailPage'))
 const CollectionsPage = lazy(() => import('@/pages/CollectionsPage'))
 const CollectionDetailPage = lazy(() => import('@/pages/CollectionDetailPage'))
+const MusicPage = lazy(() => import('@/pages/MusicPage'))
 
 // 页面加载中的占位组件 — 品牌化霓虹脉冲环
 function PageLoader() {
@@ -136,8 +139,11 @@ export default function App() {
             >
               <Route index element={<HomePage />} />
               <Route path="library/:id" element={<LibraryPage />} />
-              <Route path="media/:id" element={<MediaDetailPage />} />
+              <Route path="media/:id" element={<MediaRouter />} />
+              <Route path="movie/:id" element={<MediaDetailPage />} />
+              <Route path="episode/:id" element={<EpisodeDetailPage />} />
               <Route path="series/:id" element={<SeriesDetailPage />} />
+              <Route path="series/:seriesId/season/:seasonNum" element={<SeasonDetailPage />} />
               <Route path="search" element={<SearchPage />} />
               <Route path="favorites" element={<FavoritesPage />} />
               <Route path="history" element={<HistoryPage />} />
@@ -146,7 +152,6 @@ export default function App() {
               <Route path="scrape" element={<Navigate to="/files?tab=scrape" replace />} />
               <Route path="files" element={<FileManagerPage />} />
               <Route path="profile" element={<ProfilePage />} />
-              <Route path="stats" element={<StatsPage />} />
               <Route path="pulse" element={<PulsePage />} />
               <Route path="preprocess" element={<PreprocessPage />} />
               <Route path="subtitle-preprocess" element={<SubtitlePreprocessPage />} />
@@ -154,6 +159,7 @@ export default function App() {
               <Route path="collections" element={<CollectionsPage />} />
               <Route path="collections/:id" element={<CollectionDetailPage />} />
               <Route path="person/:id" element={<PersonDetailPage />} />
+              <Route path="music" element={<MusicPage />} />
               {/*
                 方案 B Phase 3：智能重命名独立页已下线
                 - 入口收敛至「媒体库 → 扫描归类 → 专家模式 → 应用到磁盘」

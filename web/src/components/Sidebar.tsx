@@ -1,6 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth'
-import { useThemeStore } from '@/stores/theme'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { libraryApi } from '@/api'
@@ -22,16 +21,11 @@ import {
   FolderOpen,
   ChevronLeft,
   Zap,
-  Sun,
-  Moon,
   Layers,
   Video,
   X,
-  BarChart3,
-  FolderOpen as FolderOpenIcon,
-  Activity,
-  Subtitles,
   Library as LibraryIcon,
+  Headphones,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -46,7 +40,6 @@ interface SidebarProps {
 
 export default function Sidebar({ isMobileOpen = false, onMobileClose }: SidebarProps) {
   const { user, logout } = useAuthStore()
-  const { theme, toggleTheme } = useThemeStore()
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [libraries, setLibraries] = useState<Library[]>([])
@@ -104,6 +97,8 @@ export default function Sidebar({ isMobileOpen = false, onMobileClose }: Sidebar
       case 'tvshow': return <Tv size={18} />
       case 'mixed': return <Layers size={18} />
       case 'other': return <Video size={18} />
+      case 'music': return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      case 'audiobook': return <Headphones size={18} />
       default: return <FolderOpen size={18} />
     }
   }
@@ -215,15 +210,6 @@ export default function Sidebar({ isMobileOpen = false, onMobileClose }: Sidebar
         </NavLink>
 
         <NavLink
-          to="/stats"
-          className={({ isActive }) => clsx('nav-item', isActive && 'active')}
-          onClick={onMobileClose}
-        >
-          <BarChart3 size={18} />
-          {(!collapsed || isMobileOpen) && <span>{t('nav.stats')}</span>}
-        </NavLink>
-
-        <NavLink
           to="/profile"
           className={({ isActive }) => clsx('nav-item', isActive && 'active')}
           onClick={onMobileClose}
@@ -258,131 +244,10 @@ export default function Sidebar({ isMobileOpen = false, onMobileClose }: Sidebar
           </>
         )}
 
-        {/* 管理入口 */}
-        {user?.role === 'admin' && (
-          <>
-            {(!collapsed || isMobileOpen) && (
-              <div className="px-3 pb-1 pt-6 text-[10px] font-bold uppercase tracking-[0.2em] text-neon/40">
-                {t('nav.management')}
-              </div>
-            )}
-            {collapsed && !isMobileOpen && (
-              <div className="my-3 mx-3 border-t border-neon-blue/10" />
-            )}
-
-            <NavLink
-              to="/admin"
-              className={({ isActive }) => clsx('nav-item', isActive && 'active')}
-              onClick={onMobileClose}
-            >
-              <Settings size={18} />
-              {(!collapsed || isMobileOpen) && <span>{t('nav.admin')}</span>}
-            </NavLink>
-
-            <NavLink
-              to="/files"
-              className={({ isActive }) => clsx('nav-item', isActive && 'active')}
-              onClick={onMobileClose}
-            >
-              <FolderOpenIcon size={18} />
-              {(!collapsed || isMobileOpen) && <span>{t('nav.files')}</span>}
-            </NavLink>
-
-            <NavLink
-              to="/pulse"
-              className={({ isActive }) => clsx('nav-item', isActive && 'active')}
-              onClick={onMobileClose}
-            >
-              <Activity size={18} />
-              {(!collapsed || isMobileOpen) && <span>{t('nav.pulse')}</span>}
-            </NavLink>
-
-            <NavLink
-              to="/preprocess"
-              className={({ isActive }) => clsx('nav-item', isActive && 'active')}
-              onClick={onMobileClose}
-            >
-              <Zap size={18} />
-              {(!collapsed || isMobileOpen) && <span>预处理</span>}
-            </NavLink>
-
-            <NavLink
-              to="/subtitle-preprocess"
-              className={({ isActive }) => clsx('nav-item', isActive && 'active')}
-              onClick={onMobileClose}
-            >
-              <Subtitles size={18} />
-              {(!collapsed || isMobileOpen) && <span>字幕预处理</span>}
-            </NavLink>
-          </>
-        )}
       </nav>
 
-      {/* 主题切换 + 用户信息 */}
+      {/* 用户信息 */}
       <div className="border-t p-3 border-[var(--border-default)]">
-        {/* 主题切换按钮 */}
-        <div className={clsx('mb-3', collapsed && !isMobileOpen && 'flex justify-center')}>
-          <button
-            onClick={toggleTheme}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleTheme() } }}
-            className={clsx(
-              'theme-toggle-btn group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-300',
-              (collapsed && !isMobileOpen) ? 'justify-center' : 'w-full'
-            )}
-            style={{
-              color: 'var(--text-secondary)',
-              background: theme === 'light' ? 'var(--nav-hover-bg)' : undefined,
-              border: theme === 'light' ? '1px solid var(--border-default)' : '1px solid transparent',
-            }}
-            /* 注意：此处保留 style 因为需要根据 theme 状态动态切换 */
-            title={theme === 'dark' ? t('nav.switchToLight') : t('nav.switchToDark')}
-            aria-label={theme === 'dark' ? t('nav.switchToLight') : t('nav.switchToDark')}
-            role="switch"
-            aria-checked={theme === 'dark'}
-          >
-            {/* 图标容器 - 固定尺寸确保对齐 */}
-            <div className="relative flex h-[18px] w-[18px] items-center justify-center flex-shrink-0">
-              <Sun
-                size={18}
-                className={clsx(
-                  'absolute transition-all duration-500',
-                  theme === 'light'
-                    ? 'rotate-0 scale-100 opacity-100 text-amber-500'
-                    : 'rotate-90 scale-0 opacity-0'
-                )}
-                style={theme === 'light' ? { filter: 'drop-shadow(0 0 4px rgba(245, 158, 11, 0.4))' } : undefined}
-              />
-              <Moon
-                size={18}
-                className={clsx(
-                  'absolute transition-all duration-500',
-                  theme === 'dark'
-                    ? 'rotate-0 scale-100 opacity-100 text-neon'
-                    : '-rotate-90 scale-0 opacity-0'
-                )}
-                style={theme === 'dark' ? { filter: 'drop-shadow(0 0 4px var(--neon-blue-40))' } : undefined}
-              />
-            </div>
-            {(!collapsed || isMobileOpen) && (
-              <span className="transition-colors group-hover:text-[var(--text-primary)]">
-                {theme === 'dark' ? t('nav.darkMode') : t('nav.lightMode')}
-              </span>
-            )}
-            {/* 当前状态指示点 */}
-            {(!collapsed || isMobileOpen) && (
-              <span
-                className="ml-auto h-1.5 w-1.5 rounded-full flex-shrink-0"
-                style={{
-                  background: theme === 'dark' ? 'var(--neon-blue)' : '#f59e0b',
-                  boxShadow: theme === 'dark'
-                    ? '0 0 6px var(--neon-blue-40)'
-                    : '0 0 6px rgba(245, 158, 11, 0.4)',
-                }}
-              />
-            )}
-          </button>
-        </div>
-
         {/* 语言切换 */}
         {(!collapsed || isMobileOpen) && (
           <LanguageSwitcher />

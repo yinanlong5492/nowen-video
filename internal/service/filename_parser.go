@@ -276,18 +276,7 @@ func containsLatin(s string) bool {
 	return false
 }
 
-// containsHan 判断字符串是否包含 CJK 汉字
-func containsHan(s string) bool {
-	for _, r := range s {
-		if r >= 0x4E00 && r <= 0x9FFF {
-			return true
-		}
-		if r >= 0x3400 && r <= 0x4DBF {
-			return true
-		}
-	}
-	return false
-}
+
 
 // pickFirstChineseSegment 提取连续的中文标题段（包含子标题）。
 //

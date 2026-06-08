@@ -167,7 +167,7 @@ func (r *AIRouter) FailoverChain() []string {
 // 仅当 yaml 中明确写 enabled: false 才不参与。
 // 为简化判断，这里统一以 r.cfg.AI.Profiles[p].Enabled == false 视为禁用，
 // 调用方在加载侧需保证 enabled 默认为 true。
-func (r *AIRouter) profileExplicitlyDisabled(p string) bool {
+func (r *AIRouter) profileExplicitlyDisabled(_ string) bool {
 	// 当前实现：直接读 Enabled 字段。要求加载时为缺省值默认填 true。
 	// 此函数预留扩展点，未来可改为读取额外的 disabled bitmap。
 	return false

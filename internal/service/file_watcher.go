@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,14 +18,16 @@ import (
 // FileWatcherService 文件系统实时监听服务
 // 监听媒体库目录下的文件变更（新增/删除/重命名），自动触发增量扫描
 type FileWatcherService struct {
-	cfg        *config.Config
-	logger     *zap.SugaredLogger
-	libRepo    *repository.LibraryRepo
-	mediaRepo  *repository.MediaRepo
-	seriesRepo *repository.SeriesRepo
-	scanner    *ScannerService
-	metadata   *MetadataService
-	wsHub      *WSHub
+	cfg          *config.Config
+	logger       *zap.SugaredLogger
+	libRepo      *repository.LibraryRepo
+	mediaRepo    *repository.MediaRepo
+	seriesRepo   *repository.SeriesRepo
+	scanner      *ScannerService
+	metadata     *MetadataService
+	musicService *MusicService
+	audiobookService *AudioBookService
+	wsHub        *WSHub
 
 	watcher  *fsnotify.Watcher
 	mu       sync.Mutex
@@ -42,24 +45,30 @@ func NewFileWatcherService(
 	seriesRepo *repository.SeriesRepo,
 	scanner *ScannerService,
 	metadata *MetadataService,
+	musicService *MusicService,
 ) *FileWatcherService {
 	return &FileWatcherService{
-		cfg:        cfg,
-		logger:     logger,
-		libRepo:    libRepo,
-		mediaRepo:  mediaRepo,
-		seriesRepo: seriesRepo,
-		scanner:    scanner,
-		metadata:   metadata,
-		watching:   make(map[string]string),
-		debounce:   make(map[string]*time.Timer),
-		stopCh:     make(chan struct{}),
+		cfg:          cfg,
+		logger:       logger,
+		libRepo:      libRepo,
+		mediaRepo:    mediaRepo,
+		seriesRepo:   seriesRepo,
+		scanner:      scanner,
+		metadata:     metadata,
+		musicService: musicService,
+		watching:     make(map[string]string),
+		debounce:     make(map[string]*time.Timer),
+		stopCh:       make(chan struct{}),
 	}
 }
 
 // SetWSHub 设置 WebSocket Hub
 func (fw *FileWatcherService) SetWSHub(hub *WSHub) {
 	fw.wsHub = hub
+}
+
+func (fw *FileWatcherService) SetAudioBookService(service *AudioBookService) {
+	fw.audiobookService = service
 }
 
 // Start 启动文件监听服务
@@ -219,16 +228,18 @@ func (fw *FileWatcherService) handleEvent(event fsnotify.Event) {
 		return
 	}
 
-	// 判断是否为视频文件或目录
+	// 判断是否为视频文件、音乐文件或目录
 	ext := strings.ToLower(filepath.Ext(event.Name))
 	isVideo := supportedExts[ext]
+	isAudio := defaultSupportedAudioFormats[ext]
+	isMediaFile := isVideo || isAudio
 	isDir := false
 	if info, err := os.Stat(event.Name); err == nil {
 		isDir = info.IsDir()
 	}
 
-	// 非视频文件且非目录，忽略
-	if !isVideo && !isDir {
+	// 非媒体文件且非目录，忽略
+	if !isMediaFile && !isDir {
 		return
 	}
 
@@ -248,22 +259,62 @@ func (fw *FileWatcherService) handleEvent(event fsnotify.Event) {
 		event.Op.String(),
 		libraryID)
 
-	// 对 Remove/Rename 事件：即时删除对应的媒体记录（视频文件级别），
+	// 对 Remove/Rename 事件：即时删除对应的媒体记录（视频或音乐文件），
 	// 避免等防抖 3 秒扫描时 UI 仍显示已不存在的文件（幽灵记录）。
-	if isVideo && event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
-		if m, err := fw.mediaRepo.FindByFilePath(event.Name); err == nil && m != nil {
-			if delErr := fw.mediaRepo.DeleteByID(m.ID); delErr != nil {
-				fw.logger.Warnf("即时删除失效媒体记录失败: %s, 错误: %v", event.Name, delErr)
-			} else {
-				fw.logger.Infof("即时删除失效媒体记录（文件已移除/重命名）: %s", event.Name)
-				// 通知前端立即刷新
-				if fw.wsHub != nil {
-					fw.wsHub.BroadcastEvent(EventLibraryUpdated, &LibraryChangedData{
-						LibraryID:   libraryID,
-						LibraryName: "",
-						Action:      "media_removed",
-						Message:     "文件已移除: " + filepath.Base(event.Name),
-					})
+	if isMediaFile && event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+		if isVideo {
+			// 删除视频记录
+			if m, err := fw.mediaRepo.FindByFilePath(event.Name); err == nil && m != nil {
+				if delErr := fw.mediaRepo.DeleteByID(m.ID); delErr != nil {
+					fw.logger.Warnf("即时删除失效视频记录失败: %s, 错误: %v", event.Name, delErr)
+				} else {
+					fw.logger.Infof("即时删除失效视频记录（文件已移除/重命名）: %s", event.Name)
+					// 通知前端立即刷新
+					if fw.wsHub != nil {
+						fw.wsHub.BroadcastEvent(EventLibraryUpdated, &LibraryChangedData{
+							LibraryID:   libraryID,
+							LibraryName: "",
+							Action:      "media_removed",
+							Message:     "文件已移除: " + filepath.Base(event.Name),
+						})
+					}
+				}
+			}
+		} else if isAudio {
+			// 先尝试删除音乐记录
+			musicDeleted := false
+			if fw.musicService != nil {
+				if err := fw.musicService.DeleteTrackByFilePath(event.Name, libraryID); err != nil {
+					fw.logger.Debugf("非音乐文件（可能是有声书）: %s, 错误: %v", event.Name, err)
+				} else {
+					musicDeleted = true
+					fw.logger.Infof("即时删除失效音乐记录（文件已移除/重命名）: %s", event.Name)
+					fw.musicService.CleanEmptyAlbums(libraryID)
+					if fw.wsHub != nil {
+						fw.wsHub.BroadcastEvent(EventLibraryUpdated, &LibraryChangedData{
+							LibraryID:   libraryID,
+							LibraryName: "",
+							Action:      "music_removed",
+							Message:     "文件已移除: " + filepath.Base(event.Name),
+						})
+					}
+				}
+			}
+
+			// 如果不是音乐文件，尝试删除有声书记录
+			if !musicDeleted && fw.audiobookService != nil {
+				if err := fw.audiobookService.DeleteBookByFilePath(event.Name, libraryID); err != nil {
+					fw.logger.Debugf("非有声书文件: %s, 错误: %v", event.Name, err)
+				} else {
+					fw.logger.Infof("即时删除失效有声书记录（文件已移除/重命名）: %s", event.Name)
+					if fw.wsHub != nil {
+						fw.wsHub.BroadcastEvent(EventLibraryUpdated, &LibraryChangedData{
+							LibraryID:   libraryID,
+							LibraryName: "",
+							Action:      "audiobook_removed",
+							Message:     "文件已移除: " + filepath.Base(event.Name),
+						})
+					}
 				}
 			}
 		}
@@ -312,7 +363,7 @@ func (fw *FileWatcherService) triggerIncrementalScan(libraryID string) {
 		return
 	}
 
-	fw.logger.Infof("文件变更触发增量扫描: %s (主路径: %s)", lib.Name, lib.Path)
+	fw.logger.Infof("文件变更触发增量扫描: %s (主路径: %s, 类型: %s)", lib.Name, lib.Path, lib.Type)
 
 	// 通过 WebSocket 通知前端
 	if fw.wsHub != nil {
@@ -324,11 +375,68 @@ func (fw *FileWatcherService) triggerIncrementalScan(libraryID string) {
 		})
 	}
 
-	// 执行扫描（复用已有的扫描逻辑）
-	count, err := fw.scanner.ScanLibrary(lib)
-	if err != nil {
-		fw.logger.Errorf("增量扫描失败: %s - %v", lib.Name, err)
-		return
+	var count int
+	switch lib.Type {
+	case "audiobook":
+		if fw.audiobookService == nil {
+			fw.logger.Errorf("AudioBookService 未初始化，无法扫描有声书库")
+			return
+		}
+		allPaths := lib.AllPaths()
+		count, err = fw.audiobookService.ScanLibrary(libraryID, allPaths)
+		if err != nil {
+			fw.logger.Errorf("增量扫描失败: %s - %v", lib.Name, err)
+			return
+		}
+
+		if fw.wsHub != nil {
+			fw.wsHub.BroadcastEvent(EventScanCompleted, &ScanProgressData{
+				LibraryID:   libraryID,
+				LibraryName: lib.Name,
+				Phase:       "scanning",
+				NewFound:    count,
+				Message:     fmt.Sprintf("扫描完成: %s, 新增 %d 本有声书", lib.Name, count),
+			})
+			fw.wsHub.BroadcastEvent(EventLibraryUpdated, &LibraryChangedData{
+				LibraryID:   libraryID,
+				LibraryName: lib.Name,
+				Action:      "audiobook_scan_completed",
+				Message:     fmt.Sprintf("有声书库 %s 扫描完成", lib.Name),
+			})
+		}
+	case "music":
+		if fw.musicService == nil {
+			fw.logger.Errorf("MusicService 未初始化，无法扫描音乐库")
+			return
+		}
+		allPaths := lib.AllPaths()
+		count, err = fw.musicService.ScanMusicLibrary(libraryID, allPaths)
+		if err != nil {
+			fw.logger.Errorf("增量扫描失败: %s - %v", lib.Name, err)
+			return
+		}
+
+		if fw.wsHub != nil {
+			fw.wsHub.BroadcastEvent(EventScanCompleted, &ScanProgressData{
+				LibraryID:   libraryID,
+				LibraryName: lib.Name,
+				Phase:       "scanning",
+				NewFound:    count,
+				Message:     fmt.Sprintf("扫描完成: %s, 新增 %d 首曲目", lib.Name, count),
+			})
+			fw.wsHub.BroadcastEvent(EventLibraryUpdated, &LibraryChangedData{
+				LibraryID:   libraryID,
+				LibraryName: lib.Name,
+				Action:      "music_scan_completed",
+				Message:     fmt.Sprintf("音乐库 %s 扫描完成", lib.Name),
+			})
+		}
+	default:
+		count, err = fw.scanner.ScanLibrary(lib)
+		if err != nil {
+			fw.logger.Errorf("增量扫描失败: %s - %v", lib.Name, err)
+			return
+		}
 	}
 
 	// 更新最后扫描时间
@@ -336,20 +444,27 @@ func (fw *FileWatcherService) triggerIncrementalScan(libraryID string) {
 	lib.LastScan = &now
 	fw.libRepo.Update(lib)
 
-	fw.logger.Infof("增量扫描完成: %s, 新增 %d 个媒体", lib.Name, count)
+	switch lib.Type {
+	case "audiobook":
+		fw.logger.Infof("增量扫描完成: %s, 新增 %d 本有声书", lib.Name, count)
+	case "music":
+		fw.logger.Infof("增量扫描完成: %s, 新增 %d 首曲目", lib.Name, count)
+	default:
+		fw.logger.Infof("增量扫描完成: %s, 新增 %d 个媒体", lib.Name, count)
+	}
 
-	// 如果有新增媒体，自动触发刮削
-	if count > 0 {
+	if count > 0 && lib.Type != "music" && lib.Type != "audiobook" {
 		go func() {
 			if lib.Type == "tvshow" {
-				success, failed := fw.metadata.ScrapeAllSeries(libraryID)
-				if success > 0 || failed > 0 {
-					fw.logger.Infof("增量刮削完成: %s, 成功 %d, 失败 %d", lib.Name, success, failed)
+				// 剧集库：刮削合集元数据
+				seriesList, _ := fw.seriesRepo.ListByLibraryID(libraryID)
+				for _, series := range seriesList {
+					fw.metadata.ScrapeSeries(series.ID)
 				}
 			} else {
 				mediaList, err := fw.mediaRepo.ListByLibraryID(libraryID)
 				if err == nil && len(mediaList) > 0 {
-					success, failed := fw.metadata.ScrapeLibrary(libraryID, mediaList)
+					success, failed := fw.metadata.ScrapeLibrary(libraryID, mediaList, "fill_missing")
 					if success > 0 || failed > 0 {
 						fw.logger.Infof("增量刮削完成: %s, 成功 %d, 失败 %d", lib.Name, success, failed)
 					}

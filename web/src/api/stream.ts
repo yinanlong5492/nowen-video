@@ -91,17 +91,35 @@ export const streamApi = {
   getPosterUrl: (mediaId: string, version?: number) =>
     withToken(`/api/media/${mediaId}/poster${version ? `?v=${version}` : ''}`),
 
+  getLogoUrl: (mediaId: string, version?: number) =>
+    withToken(`/api/media/${mediaId}/logo${version ? `?v=${version}` : ''}`),
+
+  getBackdropUrl: (mediaId: string, version?: number) =>
+    withToken(`/api/media/${mediaId}/backdrop${version ? `?v=${version}` : ''}`),
+
   getSeriesPosterUrl: (seriesId: string, version?: number) =>
     withToken(`/api/series/${seriesId}/poster${version ? `?v=${version}` : ''}`),
 
   getSeriesBackdropUrl: (seriesId: string, version?: number) =>
     withToken(`/api/series/${seriesId}/backdrop${version ? `?v=${version}` : ''}`),
 
+  getSeriesLogoUrl: (seriesId: string, version?: number) =>
+    withToken(`/api/series/${seriesId}/logo${version ? `?v=${version}` : ''}`),
+
+  getSeasonPosterUrl: (seriesId: string, seasonNum: number) =>
+    withToken(`/api/series/${seriesId}/seasons/${seasonNum}/poster`),
+
   getCollectionPosterUrl: (collectionId: string, version?: number) =>
     withToken(`/api/collections/${collectionId}/poster${version ? `?v=${version}` : ''}`),
 
   getPersonProfileUrl: (personId: string, version?: number) =>
     withToken(`/api/persons/${personId}/profile${version ? `?v=${version}` : ''}`),
+
+  // 获取 TMDb 图片基础 URL（用于直接访问 TMDb 图片，如季海报）
+  getTmdbImageUrl: () => {
+    // 默认使用 TMDb 官方图片服务器，可通过后端配置代理
+    return 'https://image.tmdb.org/t/p/'
+  },
 
   // 为任意 URL 添加认证 token
   withTokenUrl: (url: string) => withToken(url),

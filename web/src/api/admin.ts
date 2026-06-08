@@ -18,6 +18,7 @@ import type {
   DoubanValidateResult,
   DoubanImportTokenInfo,
   DoubanImportTokenStatus,
+  ScraperEnabledConfig,
   SystemSettings,
   DoubanSearchResult,
   TheTVDBSearchResult,
@@ -93,6 +94,17 @@ export const adminApi = {
   testTMDbKey: (apiKey: string) =>
     api.post<{ data: { valid: boolean; message: string } }>('/admin/settings/tmdb/test', { api_key: apiKey }),
 
+  // 更新 TMDb 代理配置
+  updateTMDbProxy: (apiProxy: string, imageProxy: string) =>
+    api.post<{ message: string; data: { api_proxy: string; image_proxy: string } }>('/admin/settings/tmdb/proxy', { api_proxy: apiProxy, image_proxy: imageProxy }),
+
+  // 刮削数据源启停配置
+  getScraperEnabledConfig: () =>
+    api.get<{ data: ScraperEnabledConfig }>('/admin/settings/scraper'),
+
+  updateScraperEnabledConfig: (data: { tmdb_scraper_enabled?: boolean; douban_scraper_enabled?: boolean }) =>
+    api.put<{ message: string; data: ScraperEnabledConfig }>('/admin/settings/scraper', data),
+
   // 定时任务
   listTasks: () =>
     api.get<ListResponse<ScheduledTask>>('/admin/tasks'),
@@ -142,8 +154,11 @@ export const adminApi = {
   unmatchMetadata: (mediaId: string) =>
     api.post(`/admin/media/${mediaId}/unmatch`),
 
-  deleteMedia: (mediaId: string) =>
-    api.delete(`/admin/media/${mediaId}`),
+  deleteMedia: (mediaId: string, deleteFiles?: boolean) =>
+    api.delete(`/admin/media/${mediaId}`, { params: deleteFiles ? { delete_files: 'true' } : undefined }),
+
+  deleteSeason: (seriesId: string, seasonNum: number, deleteFiles?: boolean) =>
+    api.delete(`/admin/series/${seriesId}/seasons/${seasonNum}`, { params: deleteFiles ? { delete_files: 'true' } : undefined }),
 
   updateMediaMetadata: (mediaId: string, data: {
     title?: string
@@ -166,11 +181,11 @@ export const adminApi = {
   unmatchSeriesMetadata: (seriesId: string) =>
     api.post(`/admin/series/${seriesId}/unmatch`),
 
-  scrapeSeriesMetadata: (seriesId: string) =>
-    api.post(`/admin/series/${seriesId}/scrape`),
+  scrapeSeriesMetadata: (seriesId: string, replaceImages?: boolean, mode?: string) =>
+    api.post(`/admin/series/${seriesId}/scrape`, { replace_images: !!replaceImages, mode: mode || '' }),
 
-  deleteSeries: (seriesId: string) =>
-    api.delete(`/admin/series/${seriesId}`),
+  deleteSeries: (seriesId: string, deleteFiles?: boolean) =>
+    api.delete(`/admin/series/${seriesId}`, { params: deleteFiles ? { delete_files: 'true' } : undefined }),
 
   updateSeriesMetadata: (seriesId: string, data: {
     title?: string

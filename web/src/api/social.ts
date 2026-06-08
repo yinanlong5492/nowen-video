@@ -73,15 +73,6 @@ export const commentApi = {
     api.delete(`/comments/${id}`),
 }
 
-// ==================== 播放统计 ====================
-export const statsApi = {
-  recordPlayback: (mediaId: string, watchMinutes: number) =>
-    api.post('/stats/playback', { media_id: mediaId, watch_minutes: watchMinutes }),
-
-  getMyStats: () =>
-    api.get<{ data: import('@/types').UserStatsOverview }>('/stats/me'),
-}
-
 // ==================== 播放错误上报 ====================
 export const logApi = {
   reportPlaybackError: (data: { media_id?: string; media_title?: string; message: string; detail?: string }) =>

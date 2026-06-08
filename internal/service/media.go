@@ -24,6 +24,7 @@ type MediaService struct {
 	favRepo     *repository.FavoriteRepo
 	libRepo     *repository.LibraryRepo
 	statsRepo   *repository.PlaybackStatsRepo
+	musicService *MusicService
 	cfg         *config.Config
 	logger      *zap.SugaredLogger
 }
@@ -35,6 +36,7 @@ func NewMediaService(
 	favRepo *repository.FavoriteRepo,
 	libRepo *repository.LibraryRepo,
 	statsRepo *repository.PlaybackStatsRepo,
+	musicService *MusicService,
 	cfg *config.Config,
 	logger *zap.SugaredLogger,
 ) *MediaService {
@@ -45,6 +47,7 @@ func NewMediaService(
 		favRepo:     favRepo,
 		libRepo:     libRepo,
 		statsRepo:   statsRepo,
+		musicService: musicService,
 		cfg:         cfg,
 		logger:      logger,
 	}
@@ -112,11 +115,12 @@ func (s *MediaService) ListMediaAggregated(page, size int, libraryID string) ([]
 	return s.mediaRepo.ListNonEpisode(page, size, libraryID)
 }
 
-// MixedItem 混合项 — 统一表示电影或合集
+// MixedItem 混合项 — 统一表示电影、合集或音乐
 type MixedItem struct {
-	Type   string        `json:"type"` // "movie" 或 "series"
+	Type   string        `json:"type"` // "movie" 或 "series" 或 "music"
 	Media  *model.Media  `json:"media,omitempty"`
 	Series *model.Series `json:"series,omitempty"`
+	Music  *MusicTrack   `json:"music,omitempty"`
 }
 
 // MixedListResult 混合列表查询结果
@@ -288,10 +292,13 @@ func getMixedItemTime(item MixedItem) time.Time {
 	if item.Series != nil {
 		return item.Series.CreatedAt
 	}
+	if item.Music != nil {
+		return item.Music.CreatedAt
+	}
 	return time.Time{}
 }
 
-// RecentMixed 最近添加混合列表（电影+合集按时间混合排列）
+// RecentMixed 最近添加混合列表（电影+合集+音乐按时间混合排列）
 // 自动对同名 Series 去重：标准化标题相同的多个 Series 只展示最新更新的那个
 func (s *MediaService) RecentMixed(limit int) ([]MixedItem, error) {
 	if limit <= 0 || limit > 50 {
@@ -308,6 +315,15 @@ func (s *MediaService) RecentMixed(limit int) ([]MixedItem, error) {
 		return nil, err
 	}
 
+	var musicTracks []MusicTrack
+	if s.musicService != nil {
+		musicTracks, err = s.musicService.Recent(limit)
+		if err != nil {
+			s.logger.Warnf("获取最近音乐失败: %v", err)
+			// 即使音乐失败，也要返回其他内容
+		}
+	}
+
 	// 对同名 Series 去重：按标准化标题分组，每组只保留最新更新的
 	seriesList = deduplicateSeriesByTitle(seriesList)
 
@@ -322,6 +338,12 @@ func (s *MediaService) RecentMixed(limit int) ([]MixedItem, error) {
 		items = append(items, MixedItem{
 			Type:   "series",
 			Series: &seriesList[i],
+		})
+	}
+	for i := range musicTracks {
+		items = append(items, MixedItem{
+			Type:  "music",
+			Music: &musicTracks[i],
 		})
 	}
 

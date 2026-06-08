@@ -33,13 +33,16 @@ export { aiApi, aiAssistantApi } from './ai'
 
 // 社交与互动
 export { recommendApi } from './recommend'
-export { castApi, bookmarkApi, commentApi, statsApi, logApi } from './social'
+export { castApi, bookmarkApi, commentApi, logApi } from './social'
 
 // V3 扩展
 export { aiSceneApi } from './v3'
 
 // V2 扩展
 export { userProfileApi, offlineDownloadApi, pluginApi, musicApi, photoApi, federationApi, abrApi } from './v2'
+
+// 有声书
+export { audiobookApi, getAudioBookStreamUrl, getAudioBookCoverUrl } from './audiobook'
 
 // V5: Pulse 数据中心
 export { pulseApi } from './pulse'

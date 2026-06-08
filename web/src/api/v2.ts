@@ -1,4 +1,5 @@
 import api from './client'
+import { withToken } from './stream'
 
 // ==================== V2: 多用户配置文件 ====================
 export const userProfileApi = {
@@ -42,7 +43,7 @@ export const pluginApi = {
 export const musicApi = {
   listTracks: (params: { library_id?: string; page?: number; size?: number; sort?: string }) =>
     api.get<{ data: import('@/types').MusicTrack[]; total: number }>('/music/tracks', { params }),
-  listAlbums: (params: { library_id?: string; page?: number; size?: number }) =>
+  listAlbums: (params: { library_id?: string; page?: number; size?: number; sort?: string }) =>
     api.get<{ data: import('@/types').MusicAlbum[]; total: number }>('/music/albums', { params }),
   getAlbum: (id: string) => api.get<{ data: import('@/types').MusicAlbum }>(`/music/albums/${id}`),
   search: (q: string, limit = 20) => api.get<{ data: import('@/types').MusicTrack[] }>('/music/search', { params: { q, limit } }),
@@ -53,6 +54,30 @@ export const musicApi = {
   createPlaylist: (name: string) => api.post<{ data: import('@/types').MusicPlaylist }>('/music/playlists', { name }),
   getPlaylist: (id: string) => api.get<{ data: import('@/types').MusicPlaylist }>(`/music/playlists/${id}`),
   addToPlaylist: (id: string, trackIds: string[]) => api.post(`/music/playlists/${id}/tracks`, { track_ids: trackIds }),
+
+  // 更新元数据
+  updateAlbum: (id: string, updates: Record<string, unknown>) =>
+    api.put<{ data: import('@/types').MusicAlbum; message: string }>(`/admin/music/albums/${id}`, updates),
+  updateArtist: (libraryId: string, artistName: string, updates: Record<string, unknown>) =>
+    api.put<{ data: { updated_count: number }; message: string }>('/admin/music/artists', {
+      library_id: libraryId,
+      artist_name: artistName,
+      updates,
+    }),
+
+  // 获取音乐封面
+  getTrackCoverUrl: (trackId: string) => {
+    return withToken(`/api/music/tracks/${trackId}/cover`);
+  },
+  getAlbumCoverUrl: (albumId: string) => {
+    return withToken(`/api/music/albums/${albumId}/cover`);
+  },
+  getCoverUrlFromPath: (coverPath: string) => {
+    if (!coverPath) {
+      return '';
+    }
+    return withToken(coverPath);
+  },
 }
 
 // ==================== V2: 图片库 ====================

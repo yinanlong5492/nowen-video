@@ -3,7 +3,7 @@ import { useToast } from '@/components/Toast'
 import { useTranslation } from '@/i18n'
 import { usePageCache } from '@/hooks/usePageCache'
 import { usePagination } from '@/hooks/usePagination'
-import type { Favorite } from '@/types'
+import type { Favorite, Media } from '@/types'
 import MediaGrid from '@/components/MediaGrid'
 import Pagination from '@/components/Pagination'
 import { Heart } from 'lucide-react'
@@ -37,7 +37,7 @@ export default function FavoritesPage() {
 
   const favorites = data?.list ?? []
   const total = data?.total ?? 0
-  const media = favorites.map((f) => f.media)
+  const media = favorites.map((f) => f.media).filter((m): m is Media => !!m)
   const pages = totalPages(total)
 
   return (
@@ -47,7 +47,7 @@ export default function FavoritesPage() {
         {t('favorites.title')}
       </h1>
 
-      <MediaGrid items={media} loading={loading} />
+      <MediaGrid items={media} loading={loading} columns={9} />
 
       {/* 空状态 */}
       {!loading && media.length === 0 && (

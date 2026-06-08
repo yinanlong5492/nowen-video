@@ -121,6 +121,11 @@
   --chip-border: var(--neon-blue-15);
   --chip-text: var(--text-secondary);
 
+  /* 音乐库卡片渐变背景 */
+  --card-favorites-gradient: linear-gradient(135deg, #3b82f6, #6366f1, #a855f7);
+  --card-recent-gradient: linear-gradient(135deg, #ec4899, #d946ef, #8b5cf6);
+  --card-popular-gradient: linear-gradient(135deg, #f97316, #fb923c, #facc15);
+
   /* Tailwind surface 色板 */
   --surface-50: #f0f4f8;
   --surface-100: #d9e2ec;
@@ -246,6 +251,17 @@
   --chip-bg: var(--neon-blue-6);
   --chip-border: var(--neon-blue-15);
   --chip-text: var(--text-secondary);
+
+  /* 音乐库卡片渐变背景 */
+  --card-favorites-gradient: linear-gradient(135deg, #3b82f6, #6366f1, #a855f7);
+  --card-recent-gradient: linear-gradient(135deg, #ec4899, #d946ef, #8b5cf6);
+  --card-popular-gradient: linear-gradient(135deg, #f97316, #fb923c, #facc15);
+
+  /* Toggle 开关关闭时的背景色（明亮主题） */
+  --toggle-off-bg: rgba(15, 23, 42, 0.22);
+  
+  /* Neon 色调背景（用于图标，明亮主题） */
+  --neon-tint: var(--neon-blue-10);
 
   /* Tailwind surface 色板（亮色版 — 数值翻转） */
   --surface-50: #1e293b;
@@ -386,6 +402,7 @@
     padding: 1px;
     background: linear-gradient(135deg, var(--neon-blue-30), var(--neon-purple-20));
     -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
     pointer-events: none;
@@ -394,8 +411,6 @@
   /* === 媒体卡片 - 3D光影版 === */
   .media-card {
     @apply relative overflow-hidden rounded-xl transition-all duration-300;
-    background: var(--bg-card);
-    border: 1px solid var(--border-default);
     transform-style: preserve-3d;
     perspective: 1000px;
     /* 确保卡片在网格中完整填充 */
@@ -404,8 +419,6 @@
   }
 
   .media-card:hover {
-    border-color: var(--border-hover);
-    box-shadow: var(--shadow-card-hover), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
 
   /* 卡片顶部霓虹光条 */
@@ -430,10 +443,10 @@
   .gradient-overlay {
     @apply absolute inset-0;
     background: linear-gradient(
-      to top,
-      var(--gradient-overlay-from) 0%,
-      var(--gradient-overlay-mid) 40%,
-      transparent 100%
+      to bottom,
+      transparent 0%,
+      transparent 30%,
+      var(--bg-base) 100%
     );
   }
 
@@ -600,10 +613,10 @@
 
   /* === 图标按钮 === */
   .btn-icon {
-    @apply inline-flex items-center justify-center rounded-2xl;
+    @apply inline-flex items-center justify-center rounded-full;
     @apply h-12 w-12;
     @apply transition-all duration-300;
-    background: var(--nav-hover-bg);
+    background: var(--bg-elevated);
     border: 1px solid var(--border-default);
     backdrop-filter: blur(12px);
     color: var(--text-secondary);
@@ -692,6 +705,12 @@
     color: var(--text-muted);
   }
 
+  /* Toggle 开关关闭时的背景色 */
+  /* --toggle-off-bg: rgba(255, 255, 255, 0.15); */
+  
+  /* Neon 色调背景（用于图标） */
+  /* --neon-tint: var(--neon-blue-10); */
+
   .input:focus {
     @apply outline-none;
     border-color: var(--neon-blue);
@@ -763,6 +782,7 @@
     border-radius: 50%;
     border: 2px solid transparent;
     background: conic-gradient(from 0deg, var(--neon-blue), var(--neon-purple), var(--neon-blue)) border-box;
+    mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
     -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
@@ -927,6 +947,7 @@
   .line-clamp-3 {
     display: -webkit-box;
     -webkit-line-clamp: 3;
+    line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
@@ -934,6 +955,7 @@
   .line-clamp-2 {
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
@@ -1086,6 +1108,57 @@ input[type="range"]::-moz-range-thumb {
   border: 2px solid #fff;
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* 音乐播放器进度条专用样式 */
+.music-player-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2px;
+  border-radius: 9999px;
+  outline: none;
+  transition: height 0.2s ease;
+}
+
+.music-player-range:hover {
+  height: 4px;
+}
+
+.music-player-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--neon-blue);
+  cursor: pointer;
+  box-shadow: var(--neon-glow-shadow-md);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  opacity: 0;
+}
+
+.music-player-range:hover::-webkit-slider-thumb {
+  opacity: 1;
+  transform: scale(1.2);
+  box-shadow: var(--neon-glow-shadow-lg);
+}
+
+.music-player-range::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--neon-blue);
+  cursor: pointer;
+  border: none;
+  box-shadow: var(--neon-glow-shadow-md);
+  opacity: 0;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.music-player-range:hover::-moz-range-thumb {
+  opacity: 1;
+  transform: scale(1.2);
+  box-shadow: var(--neon-glow-shadow-lg);
 }
 
 /* ============================================================

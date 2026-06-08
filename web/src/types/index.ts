@@ -77,7 +77,7 @@ export interface Library {
   path: string
   /** 额外媒体文件夹列表（JSON 字符串），使用 paths() 工具函数获取完整数组更方便 */
   extra_paths?: string
-  type: 'movie' | 'tvshow' | 'mixed' | 'other'
+  type: 'movie' | 'tvshow' | 'mixed' | 'other' | 'music' | 'audiobook'
   last_scan: string | null
   created_at: string
   media_count?: number
@@ -132,7 +132,7 @@ export interface CreateLibraryRequest {
   path?: string
   /** 多路径模式：第一个路径将作为主路径 */
   paths?: string[]
-  type: 'movie' | 'tvshow' | 'mixed' | 'other'
+  type: 'movie' | 'tvshow' | 'mixed' | 'other' | 'music' | 'audiobook'
   // 高级设置（可选）
   prefer_local_nfo?: boolean
   enable_file_filter?: boolean
@@ -154,12 +154,42 @@ export interface Media {
   overview: string
   poster_path: string
   backdrop_path: string
+  logo_path: string
   rating: number
   runtime: number
   genres: string
   file_path: string
   file_size: number
-  media_type: 'movie' | 'episode'
+  media_type: 'movie' | 'episode' | 'music'
+  // 音乐相关字段
+  artist?: string
+  artist_group?: string
+  band?: string
+  album_artist?: string
+  album?: string
+  genre?: string
+  track_num?: number
+  disc_num?: number
+  music_language?: string
+  composer?: string
+  lyricist?: string
+  arranger?: string
+  original_singer?: string
+  record_label?: string
+  album_release_date?: string
+  album_type?: string
+  key?: string
+  isrc?: string
+  is_ost?: boolean
+  play_count?: number
+  last_play_time?: string
+  loved?: boolean
+  alias?: string
+  file_name?: string
+  folder_level?: number
+  notes?: string
+  lyrics_path?: string
+  lyrics_text?: string
   video_codec: string
   audio_codec: string
   resolution: string
@@ -212,6 +242,7 @@ export interface Series {
   overview: string
   poster_path: string
   backdrop_path: string
+  logo_path: string
   rating: number
   genres: string
   folder_path: string
@@ -251,18 +282,11 @@ export interface MediaPerson {
   person: Person
 }
 
-// ==================== 播放统计 ====================
-export interface UserStatsOverview {
-  total_minutes: number
-  total_hours: number
-  daily_stats: { date: string; total_minutes: number; media_count: number }[]
-  top_genres: { genres: string; total_minutes: number }[]
-  most_watched: { media_id: string; title: string; poster_path: string; total_minutes: number; media_type?: string }[]
-}
-
 export interface SeasonInfo {
   season_num: number
   episode_count: number
+  year: number
+  poster_path: string
   episodes: Media[]
 }
 
@@ -371,6 +395,8 @@ export interface ASRServiceStatus {
 export interface TMDbConfigStatus {
   configured: boolean
   masked_key: string
+  api_proxy?: string
+  image_proxy?: string
 }
 
 // ==================== 智能推荐 ====================
@@ -428,9 +454,11 @@ export interface AggregatedRecentResponse {
 
 // ==================== 混合列表（Emby风格） ====================
 export interface MixedItem {
-  type: 'movie' | 'series'
+  type: 'movie' | 'series' | 'music' | 'audiobook'
   media?: Media
   series?: Series
+  music?: MusicTrack
+  audiobook?: AudioBook
 }
 
 export interface ListResponse<T> {
@@ -702,6 +730,7 @@ export interface SystemSettings {
   auto_preprocess_on_scan: boolean   // 扫描后自动触发预处理
   auto_transcode_on_play: boolean    // 播放时自动触发转码
   prefer_direct_play: boolean        // 优先直接播放（禁用自动转码）
+  library_page_size: number          // 媒体库分页大小（0表示不分页）
 }
 
 // ==================== 豆瓣数据源 ====================
@@ -920,6 +949,12 @@ export interface DoubanConfigStatus {
   masked_cookie: string
 }
 
+// ==================== 刮削数据源启停配置 ====================
+export interface ScraperEnabledConfig {
+  tmdb_scraper_enabled: boolean
+  douban_scraper_enabled: boolean
+}
+
 export interface DoubanValidateResult {
   valid: boolean
   username?: string
@@ -1036,6 +1071,7 @@ export interface FileManagerStats {
   total_files: number
   movie_count: number
   episode_count: number
+  music_count: number
   scraped_count: number
   partial_count?: number
   failed_count?: number
@@ -1510,26 +1546,64 @@ export interface MusicTrack {
   id: string
   library_id: string
   album_id: string
+  // 一、核心基础
   title: string
+  orig_title?: string
+  alias?: string
+  file_name?: string
+  file_path: string
   artist: string
+  artist_group?: string
+  band?: string
   album_artist: string
   album: string
-  genre: string
-  year: number
-  track_num: number
-  disc_num: number
+  cover_path: string
+  folder_level?: number
+  // 二、创作制作
+  lyricist?: string
+  composer?: string
+  arranger?: string
+  original_singer?: string
+  // 三、音频属性
   duration: number
-  file_path: string
-  file_size: number
-  format: string
   bitrate: number
   sample_rate: number
   channels: number
-  cover_path: string
-  lyrics_path: string
+  format: string
+  file_size: number
+  // 四、专辑发行
+  year: number
+  album_release_date?: string
+  record_label?: string
+  album_type?: string
+  // 五、分类检索标签
+  music_language?: string
+  genre: string
+  tags?: string
+  key?: string
+  // 六、播放自用字段
   play_count: number
+  last_play_time?: string
   loved: boolean
+  rating?: number
+  // 七、拓展实用
+  isrc?: string
+  is_ost?: boolean
+  notes?: string
+  lyrics_path?: string
+  lyrics_text?: string
+  // 八、排序索引字段
+  track_num: number
+  disc_num: number
+  // .cue 支持
+  cue_file_path?: string
+  start_time?: number
+  end_time?: number
+  is_virtual?: boolean
+  // 时间戳
+  file_mod_time?: string
   created_at: string
+  updated_at?: string
 }
 
 export interface MusicAlbum {
@@ -1539,9 +1613,11 @@ export interface MusicAlbum {
   artist: string
   year: number
   genre: string
+  music_language?: string
   cover_path: string
   track_count: number
   total_duration: number
+  created_at: string
   tracks?: MusicTrack[]
 }
 
@@ -2118,5 +2194,77 @@ export interface DuplicateGroup {
   media_count: number
   media: DuplicateItem[]
   suggestion: string
+}
+
+// ==================== 有声书 ====================
+export interface AudioBook {
+  id: string
+  library_id: string
+  title: string
+  orig_title: string
+  sub_title: string
+  sort_title: string
+  description: string
+  cover_path: string
+  author: string
+  narrator: string
+  publisher: string
+  series_name: string
+  series_position: number
+  language: string
+  genres: string
+  tags: string
+  category: string
+  content_rating: string
+  is_completed: boolean
+  copyright: string
+  isbn: string
+  release_date: string
+  update_date: string
+  year: number
+  duration: number
+  file_size: number
+  format: string
+  bitrate: number
+  sample_rate: number
+  channels: number
+  chapter_count: number
+  chapter_list: string
+  is_single_file: boolean
+  file_path: string
+  folder_path: string
+  play_position: number
+  play_count: number
+  last_play_time: string | null
+  is_favorite: boolean
+  rating: number
+  community_rating: number
+  ximalaya_id: number
+  ximalaya_track_id: string
+  scrape_status: string
+  scrape_attempts: number
+  last_scrape_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AudioBookChapter {
+  index: number
+  title: string
+  start: number
+  end: number
+  duration: number
+  file?: string
+}
+
+export interface XimalayaSearchResult {
+  album_id: number
+  title: string
+  author: string
+  description: string
+  cover_url: string
+  chapter_count: number
+  is_completed: boolean
+  duration: number
 }
 

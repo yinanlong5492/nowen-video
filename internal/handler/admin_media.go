@@ -13,11 +13,13 @@ import (
 
 // ==================== 媒体管理 ====================
 
-// DeleteMedia 删除单个媒体记录（仅从数据库移除，不删除文件）
+// DeleteMedia 删除单个媒体记录
+// 可选参数: ?delete_files=true 同时删除磁盘上的视频文件
 func (h *AdminHandler) DeleteMedia(c *gin.Context) {
 	mediaID := c.Param("mediaId")
+	deleteFiles := c.Query("delete_files") == "true"
 
-	if err := h.libraryService.DeleteMedia(mediaID); err != nil {
+	if err := h.libraryService.DeleteMedia(mediaID, deleteFiles); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除影片失败: " + err.Error()})
 		return
 	}
@@ -270,16 +272,38 @@ func (h *AdminHandler) UpdateSeriesMetadata(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "元数据已更新", "data": series})
 }
 
-// DeleteSeries 删除剧集合集记录（仅从数据库移除，不删除文件）
+// DeleteSeries 删除剧集合集记录
+// 可选参数: ?delete_files=true 同时删除该系列下所有剧集的视频文件
+// 级联删除该系列下所有 episode 记录
 func (h *AdminHandler) DeleteSeries(c *gin.Context) {
 	seriesID := c.Param("seriesId")
+	deleteFiles := c.Query("delete_files") == "true"
 
-	if err := h.libraryService.DeleteSeries(seriesID); err != nil {
+	if err := h.libraryService.DeleteSeries(seriesID, deleteFiles); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除剧集失败: " + err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "剧集已删除"})
+}
+
+// DeleteSeason 删除指定季下的所有剧集记录
+// 可选参数: ?delete_files=true 同时删除视频文件
+func (h *AdminHandler) DeleteSeason(c *gin.Context) {
+	seriesID := c.Param("seriesId")
+	seasonNum, err := strconv.Atoi(c.Param("seasonNum"))
+	if err != nil || seasonNum <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的季号"})
+		return
+	}
+	deleteFiles := c.Query("delete_files") == "true"
+
+	if err := h.libraryService.DeleteSeason(seriesID, seasonNum, deleteFiles); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除本季失败: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "本季已删除"})
 }
 
 // ==================== 图片管理 ====================

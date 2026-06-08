@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -736,6 +737,8 @@ func (s *ScannerService) scanMovieLibrary(library *model.Library) (int, error) {
 	// 【火力全开 B】细粒度锁：walkFn 原先整体加锁串行，现在仅对共享容器写入加锁，
 	// 把磁盘 IO（readdir）和 CPU 操作（标题解析/正则匹配）放在锁外并行。
 	var collectMu sync.Mutex
+	// 文件扫描进度计数（用于实时广播进度到前端）
+	var scanFilesFound atomic.Int32
 	// existingPaths 并发读写也需要保护（来自多路径并行遍历场景）
 	var existingMu sync.Mutex
 
@@ -888,6 +891,20 @@ func (s *ScannerService) scanMovieLibrary(library *model.Library) (int, error) {
 		videoFiles++
 		pendingList = append(pendingList, pendingMedia{media: media, path: path, info: info})
 		collectMu.Unlock()
+
+		// 每发现 50 个视频文件广播一次扫描进度
+		if found := scanFilesFound.Add(1); found%50 == 0 {
+			s.broadcastScanEvent(EventScanProgress, &ScanProgressData{
+				LibraryID:   library.ID,
+				LibraryName: library.Name,
+				Phase:       "scanning",
+				Current:     int(found),
+				Total:       0,
+				NewFound:    int(found),
+				Message:     fmt.Sprintf("已发现 %d 个视频文件", found),
+			})
+		}
+
 		return nil
 	}
 
@@ -947,6 +964,9 @@ func (s *ScannerService) scanMovieLibrary(library *model.Library) (int, error) {
 	if len(updateList) > 0 {
 		for _, pm := range updateList {
 			s.scanExternalSubtitles(pm.media)
+			if pm.media.ScrapeStatus != "manual" {
+				pm.media.ScrapeStatus = "pending"
+			}
 			if err := s.mediaRepo.Update(pm.media); err != nil {
 				s.logger.Warnf("更新媒体失败: %s, 错误: %v", pm.path, err)
 				continue
@@ -1737,7 +1757,8 @@ func (s *ScannerService) scanTVShowLibrary(library *model.Library) (int, error) 
 		for _, f := range files {
 			filePath := vfsJoin(f.rootPath, f.entry.Name())
 			ep := s.parseEpisodeInfo(f.entry.Name())
-			if ep.SeasonNum == 0 {
+			// 只有当集号也未识别时才默认季号为1（保留S00特别篇）
+			if ep.SeasonNum == 0 && ep.EpisodeNum <= 0 {
 				ep.SeasonNum = 1
 			}
 
@@ -1962,6 +1983,24 @@ func (s *ScannerService) scanMultiSeasonSeries(library *model.Library, seriesTit
 		}
 	}
 
+	// 识别本地 Logo 图片（从各季目录中查找）
+	if series.LogoPath == "" {
+		logoExts := []string{".png", ".jpg", ".jpeg", ".webp"}
+		for _, f := range folders {
+			for _, ext := range logoExts {
+				candidate := filepath.Join(f.path, "logo"+ext)
+				if _, err := os.Stat(candidate); err == nil {
+					series.LogoPath = candidate
+					s.logger.Debugf("发现多季合集本地Logo: %s", candidate)
+					break
+				}
+			}
+			if series.LogoPath != "" {
+				break
+			}
+		}
+	}
+
 	// 保存NFO和图片更新
 	s.seriesRepo.Update(series)
 
@@ -2168,6 +2207,19 @@ func (s *ScannerService) scanSeriesFolder(library *model.Library, folderPath, se
 		}
 	}
 
+	// 识别本地 Logo 图片
+	if series.LogoPath == "" {
+		logoExts := []string{".png", ".jpg", ".jpeg", ".webp"}
+		for _, ext := range logoExts {
+			candidate := filepath.Join(folderPath, "logo"+ext)
+			if _, err := os.Stat(candidate); err == nil {
+				series.LogoPath = candidate
+				s.logger.Debugf("发现剧集本地Logo: %s", candidate)
+				break
+			}
+		}
+	}
+
 	// 保存NFO和图片更新
 	s.seriesRepo.Update(series)
 
@@ -2281,8 +2333,8 @@ func (s *ScannerService) collectEpisodes(folderPath string) []EpisodeInfo {
 			}
 		}
 
-		// 默认季号为1
-		if ep.SeasonNum == 0 {
+		// 默认季号为1（仅当集号也未识别时，保留S00特别篇）
+		if ep.SeasonNum == 0 && ep.EpisodeNum <= 0 {
 			ep.SeasonNum = 1
 		}
 
@@ -2720,16 +2772,6 @@ func (s *ScannerService) broadcastScanEvent(eventType string, data *ScanProgress
 // ProbeMediaInfo 公开的 FFprobe 媒体信息探测方法（供外部服务调用）
 func (s *ScannerService) ProbeMediaInfo(media *model.Media) {
 	s.probeMediaInfo(media)
-}
-
-// parseSTRMFile 解析 .strm 文件，提取远程流 URL
-// .strm 文件格式：纯文本文件，第一行为可播放的远程 URL
-func (s *ScannerService) parseSTRMFile(filePath string) (string, error) {
-	meta, err := ParseSTRMFileEnhanced(filePath)
-	if err != nil {
-		return "", err
-	}
-	return meta.URL, nil
 }
 
 // parseSTRMFileMeta 返回 .strm 的完整元数据（URL + 自定义 Header 等）

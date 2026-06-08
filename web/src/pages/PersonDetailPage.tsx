@@ -179,7 +179,7 @@ export default function PersonDetailPage() {
           <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start">
             {/* 头像 */}
             <div
-              className="h-40 w-40 shrink-0 overflow-hidden rounded-2xl shadow-xl sm:h-48 sm:w-48"
+              className="h-40 w-40 shrink-0 overflow-hidden rounded-2xl shadow-xl sm:h-64 sm:w-48"
               style={{
                 background: 'var(--bg-surface)',
                 border: '2px solid var(--border-default)',

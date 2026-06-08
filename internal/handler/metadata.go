@@ -18,7 +18,13 @@ type MetadataHandler struct {
 func (h *MetadataHandler) ScrapeMedia(c *gin.Context) {
 	id := c.Param("id")
 
-	if err := h.metadataService.ScrapeMedia(id); err != nil {
+	var req struct {
+		ReplaceImages bool   `json:"replace_images"`
+		Mode          string `json:"mode"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	if err := h.metadataService.ScrapeMediaWithMode(id, req.ReplaceImages, req.Mode); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "元数据刮削失败: " + err.Error()})
 		return
 	}

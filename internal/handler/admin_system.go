@@ -707,9 +707,10 @@ func (h *AdminHandler) ClearAllData(c *gin.Context) {
 	successCount := 0
 	errorCount := 0
 	for _, r := range results {
-		if r.Status == "success" {
+		switch r.Status {
+		case "success":
 			successCount++
-		} else if r.Status == "error" {
+		case "error":
 			errorCount++
 		}
 	}

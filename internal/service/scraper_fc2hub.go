@@ -11,7 +11,6 @@ import (
 
 // FC2Hub 正则
 var (
-	fc2hubSearchRe   = regexp.MustCompile(`(?is)<a[^>]+href="(/archive\?kw=\d+[^"]*)"[^>]*>[\s\S]*?<img`)
 	fc2hubDetailLinkRe = regexp.MustCompile(`(?is)<a[^>]+href="(/article/\d+[^"]*)"[^>]*class="overlay"`)
 	fc2hubTitleRe    = regexp.MustCompile(`(?is)<h3[^>]*class="p-b-5"[^>]*>([^<]+)</h3>`)
 	fc2hubCoverRe    = regexp.MustCompile(`(?is)<a[^>]+href="([^"]+\.(?:jpg|jpeg|png))"[^>]*class="comic-cover"`)
@@ -73,7 +72,7 @@ func (s *AdultScraperService) scrapeFC2Hub(code string) (*AdultMetadata, error) 
 }
 
 // parseFC2HubHTML 解析 FC2Hub 详情页
-func (s *AdultScraperService) parseFC2HubHTML(html, code, fc2Num string) (*AdultMetadata, error) {
+func (s *AdultScraperService) parseFC2HubHTML(html, code string, _ string) (*AdultMetadata, error) {
 	meta := &AdultMetadata{
 		Code:        code,
 		Source:      "fc2hub",
