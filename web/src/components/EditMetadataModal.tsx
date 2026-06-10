@@ -1,6 +1,8 @@
 import { useState, useRef } from 'react'
 import { adminApi } from '@/api'
 import { useToast } from '@/components/Toast'
+import { useApiErrorHandler } from '@/hooks/useApiErrorHandler'
+import { useMetadataFormValidation } from '@/hooks/useFormValidation'
 import type { TMDbImageInfo } from '@/types'
 import { Upload, Link2, Search, Image, X, Check, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
@@ -16,13 +18,16 @@ interface EditMetadataModalProps {
   id: string
   tmdbId?: number
   mediaType?: string // movie 或 tv，仅 Media 用
-  editForm: Record<string, any>
-  setEditForm: (form: any) => void
+  entity: Record<string, any> | null
   currentPoster: string
   currentBackdrop?: string
   hasPoster: boolean
   hasBackdrop: boolean
-  onSave: () => Promise<void> | void
+  onSave: (editForm: {
+    title: string; orig_title: string; year: number; overview: string;
+    rating: number; genres: string; country: string; language: string;
+    tagline: string; studio: string
+  }) => Promise<void> | void
   onClose: () => void
   /** 是否包含 tagline 字段（仅 Media） */
   hasTagline?: boolean
@@ -33,8 +38,7 @@ export default function EditMetadataModal({
   id,
   tmdbId,
   mediaType,
-  editForm,
-  setEditForm,
+  entity,
   currentPoster,
   currentBackdrop,
   hasPoster,
@@ -45,6 +49,26 @@ export default function EditMetadataModal({
 }: EditMetadataModalProps) {
   const toast = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const { validate, errors } = useMetadataFormValidation()
+  const { wrapApiCall } = useApiErrorHandler()
+
+  // 表单状态（支持外部传入或内部管理）
+  const [internalEditForm, setInternalEditForm] = useState<Record<string, any>>(() => ({
+    title: entity?.title || '',
+    orig_title: entity?.orig_title || '',
+    year: entity?.year || 0,
+    overview: entity?.overview || '',
+    rating: entity?.rating || 0,
+    genres: entity?.genres || '',
+    country: entity?.country || '',
+    language: entity?.language || '',
+    tagline: entity?.tagline || '',
+    studio: entity?.studio || '',
+  }))
+  
+  // 使用内部表单状态
+  const editForm = internalEditForm
+  const setEditForm = setInternalEditForm
 
   // 图片编辑状态
   const [imageTab, setImageTab] = useState<ImageEditType>('poster')
@@ -66,19 +90,20 @@ export default function EditMetadataModal({
       return
     }
     setTmdbImagesLoading(true)
-    try {
-      const tmdbType = type === 'series' ? 'tv' : (mediaType || 'movie')
-      const res = await adminApi.searchTMDbImages(tmdbId, tmdbType)
+    const tmdbType = type === 'series' ? 'tv' : (mediaType || 'movie')
+    const res = await wrapApiCall(
+      () => adminApi.searchTMDbImages(tmdbId, tmdbType),
+      undefined,
+      '获取 TMDb 图片列表失败'
+    )
+    if (res) {
       setTmdbImages(res.data.data)
       const imgs = imageTab === 'poster' ? res.data.data.posters : res.data.data.backdrops
       if (imgs.length === 0) {
         toast.info('TMDb 上暂无可用图片')
       }
-    } catch {
-      toast.error('获取 TMDb 图片列表失败')
-    } finally {
-      setTmdbImagesLoading(false)
     }
+    setTmdbImagesLoading(false)
   }
 
   // 文件选择处理
@@ -107,40 +132,44 @@ export default function EditMetadataModal({
   // 确认上传/应用图片
   const handleApplyImage = async () => {
     setImageUploading(true)
-    try {
-      if (imageMode === 'upload' && selectedFile) {
-        if (type === 'media') {
-          await adminApi.uploadMediaImage(id, selectedFile, imageTab)
-        } else {
-          await adminApi.uploadSeriesImage(id, selectedFile, imageTab)
-        }
-        toast.success(`${imageTab === 'poster' ? '海报' : '背景图'}已更新`)
-      } else if (imageMode === 'url' && imageUrl.trim()) {
-        if (type === 'media') {
-          await adminApi.setMediaImageByURL(id, imageUrl.trim(), imageTab)
-        } else {
-          await adminApi.setSeriesImageByURL(id, imageUrl.trim(), imageTab)
-        }
-        toast.success(`${imageTab === 'poster' ? '海报' : '背景图'}已更新`)
-      } else if (imageMode === 'tmdb' && selectedTmdbPath) {
-        if (type === 'media') {
-          await adminApi.setMediaImageFromTMDb(id, selectedTmdbPath, imageTab)
-        } else {
-          await adminApi.setSeriesImageFromTMDb(id, selectedTmdbPath, imageTab)
-        }
-        toast.success(`${imageTab === 'poster' ? '海报' : '背景图'}已更新`)
-      }
+    const successMsg = `${imageTab === 'poster' ? '海报' : '背景图'}已更新`
+    
+    let success = false
+    if (imageMode === 'upload' && selectedFile) {
+      success = await wrapApiCall(
+        () => type === 'media' 
+          ? adminApi.uploadMediaImage(id, selectedFile, imageTab)
+          : adminApi.uploadSeriesImage(id, selectedFile, imageTab),
+        successMsg,
+        '图片上传失败'
+      ) !== undefined
+    } else if (imageMode === 'url' && imageUrl.trim()) {
+      success = await wrapApiCall(
+        () => type === 'media'
+          ? adminApi.setMediaImageByURL(id, imageUrl.trim(), imageTab)
+          : adminApi.setSeriesImageByURL(id, imageUrl.trim(), imageTab),
+        successMsg,
+        '图片下载失败'
+      ) !== undefined
+    } else if (imageMode === 'tmdb' && selectedTmdbPath) {
+      success = await wrapApiCall(
+        () => type === 'media'
+          ? adminApi.setMediaImageFromTMDb(id, selectedTmdbPath, imageTab)
+          : adminApi.setSeriesImageFromTMDb(id, selectedTmdbPath, imageTab),
+        successMsg,
+        '图片应用失败'
+      ) !== undefined
+    }
+
+    if (success) {
       // 重置图片编辑状态
       setImageMode(null)
       setPreviewUrl(null)
       setSelectedFile(null)
       setImageUrl('')
       setSelectedTmdbPath(null)
-    } catch (err: any) {
-      toast.error(err?.response?.data?.error || '图片更新失败')
-    } finally {
-      setImageUploading(false)
     }
+    setImageUploading(false)
   }
 
   const inputStyle = {
@@ -153,8 +182,14 @@ export default function EditMetadataModal({
     ? (imageTab === 'poster' ? tmdbImages.posters : tmdbImages.backdrops)
     : []
 
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) {
+      onClose()
+    }
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }} onClick={handleBackdropClick}>
       <div
         className="w-full max-w-3xl rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
         style={{ background: 'var(--bg-elevated)', border: '1px solid var(--glass-border)' }}
@@ -528,7 +563,17 @@ export default function EditMetadataModal({
             取消
           </button>
           <button
-            onClick={onSave}
+            onClick={() => {
+              const formData = editForm as {
+                title: string; orig_title: string; year: number; overview: string;
+                rating: number; genres: string; country: string; language: string;
+                tagline: string; studio: string
+              }
+              const validationResult = validate(formData)
+              if (validationResult.isValid) {
+                onSave(formData)
+              }
+            }}
             className="rounded-xl px-5 py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90"
             style={{ background: 'linear-gradient(135deg, var(--neon-blue), var(--neon-blue-mid))' }}
           >

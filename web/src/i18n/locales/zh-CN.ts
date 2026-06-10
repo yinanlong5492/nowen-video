@@ -57,7 +57,6 @@ const zhCN: Record<string, string> = {
 
   // ==================== 首页 ====================
   'home.continueWatching': '继续观看',
-  'home.myLibraries': '我的媒体库',
   'home.recentlyAdded': '最近添加',
   'home.recommended': '为你推荐',
   'home.trending': '热门内容',

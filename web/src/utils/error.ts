@@ -59,3 +59,18 @@ export function formatErrMsg(err: unknown, fallback: string): string {
   if (msg === fallback) return fallback
   return `${fallback}: ${msg}`
 }
+
+/**
+ * 统一 API 错误处理函数
+ * 
+ * @param err         捕获到的错误
+ * @param fallbackMsg 兜底错误提示文案
+ * @param toast       Toast 实例（可选，用于显示错误提示）
+ */
+export function handleApiError(err: unknown, fallbackMsg: string, toast?: { error: (msg: string) => void }): void {
+  console.error('[API Error]', err)
+  const errMsg = formatErrMsg(err, fallbackMsg)
+  if (toast) {
+    toast.error(errMsg)
+  }
+}

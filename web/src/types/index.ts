@@ -730,7 +730,6 @@ export interface SystemSettings {
   auto_preprocess_on_scan: boolean   // 扫描后自动触发预处理
   auto_transcode_on_play: boolean    // 播放时自动触发转码
   prefer_direct_play: boolean        // 优先直接播放（禁用自动转码）
-  library_page_size: number          // 媒体库分页大小（0表示不分页）
 }
 
 // ==================== 豆瓣数据源 ====================

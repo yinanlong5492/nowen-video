@@ -1,10 +1,9 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef, lazy, Suspense } from 'react'
 import { adminApi, libraryApi } from '@/api'
-import { useSystemSettingsStore } from '@/stores/systemSettings'
 import { audiobookApi } from '@/api/audiobook'
 import { useWebSocket, WS_EVENTS } from '@/hooks/useWebSocket'
-import type { SystemInfo, Library, User, TranscodeJob, TMDbConfigStatus, DoubanConfigStatus, DoubanImportTokenInfo, DoubanImportTokenStatus } from '@/types'
+import type { SystemInfo, Library, User, TranscodeJob, TMDbConfigStatus, DoubanConfigStatus, DoubanImportTokenInfo, DoubanImportTokenStatus, SystemSettings } from '@/types'
 import type { ScanProgressData, ScrapeProgressData, TranscodeProgressData, ScanPhaseData } from '@/hooks/useWebSocket'
 import toast from 'react-hot-toast'
 import {
@@ -241,7 +240,16 @@ export default function AdminPage() {
   const [scanning, setScanning] = useState<Set<string>>(new Set())
 
   // 系统全局设置
-  const { settings: sysSettings, setSettings: setSysSettings, fetchSettings } = useSystemSettingsStore()
+  const [sysSettings, setSysSettings] = useState<SystemSettings>({
+    enable_gpu_transcode: true,
+    gpu_fallback_cpu: true,
+    metadata_store_path: '',
+    play_cache_path: '',
+    enable_direct_link: false,
+    auto_preprocess_on_scan: false,
+    auto_transcode_on_play: false,
+    prefer_direct_play: true,
+  })
 
   // TMDb 配置状态
   const [tmdbConfig, setTmdbConfig] = useState<TMDbConfigStatus | null>(null)
@@ -444,6 +452,7 @@ export default function AdminPage() {
           adminApi.getTMDbConfig(),
           adminApi.getDoubanConfig(),
           adminApi.getScraperEnabledConfig(),
+          adminApi.getSystemSettings(),
         ])
         setSystemInfo(sysRes.data.data)
         setLibraries(libRes.data.data || [])
@@ -457,7 +466,7 @@ export default function AdminPage() {
           setTmdbEnabled(scraperRes.data.data.tmdb_scraper_enabled)
           setDoubanEnabled(scraperRes.data.data.douban_scraper_enabled)
         }
-        await fetchSettings()
+        if (settingsRes.data.data) setSysSettings(settingsRes.data.data)
       } catch {
         // 静默处理
       }
@@ -897,6 +906,8 @@ export default function AdminPage() {
         {activeTab === 'dashboard' && (
           <DashboardTab
             systemInfo={systemInfo}
+            sysSettings={sysSettings}
+            setSysSettings={setSysSettings}
             scanProgress={scanProgress}
             scrapeProgress={scrapeProgress}
             transcodeProgress={transcodeProgress}

@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import type { SystemInfo, SystemSettings } from '@/types'
-import { useSystemSettingsStore } from '@/stores/systemSettings'
 import type { ScanProgressData, ScrapeProgressData, TranscodeProgressData, ScanPhaseData } from '@/hooks/useWebSocket'
 import {
   Server,
@@ -27,6 +26,8 @@ import { adminApi } from '@/api'
 
 interface DashboardTabProps {
   systemInfo: SystemInfo | null
+  sysSettings: SystemSettings
+  setSysSettings: React.Dispatch<React.SetStateAction<SystemSettings>>
   scanProgress: Record<string, ScanProgressData>
   scrapeProgress: Record<string, ScrapeProgressData>
   transcodeProgress: Record<string, TranscodeProgressData>
@@ -37,12 +38,13 @@ interface DashboardTabProps {
 
 export default function DashboardTab({
   systemInfo,
+  sysSettings,
+  setSysSettings,
   scanProgress,
   scrapeProgress,
   transcodeProgress,
   scanPhase,
 }: DashboardTabProps) {
-  const { settings: sysSettings, updateSettings, fetchSettings } = useSystemSettingsStore()
   const [sysSettingsSaving, setSysSettingsSaving] = useState(false)
   const [sysSettingsMsg, setSysSettingsMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -100,13 +102,7 @@ export default function DashboardTab({
     setSysSettingsSaving(true)
     setSysSettingsMsg(null)
     try {
-      // 确保 library_page_size 总是被包含在保存的数据中
-      const settingsToSave = {
-        ...sysSettings,
-        library_page_size: sysSettings?.library_page_size ?? 20,
-      }
-      await adminApi.updateSystemSettings(settingsToSave)
-      await fetchSettings()
+      await adminApi.updateSystemSettings(sysSettings)
       setSysSettingsMsg({ type: 'success', text: '系统设置已保存' })
       setTimeout(() => setSysSettingsMsg(null), 4000)
     } catch {
@@ -394,7 +390,7 @@ export default function DashboardTab({
                 </div>
                 <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>启用 GPU 硬件加速转码，显著提升转码速度。</p>
               </div>
-              <ToggleButton checked={sysSettings.enable_gpu_transcode} onChange={() => updateSettings({ enable_gpu_transcode: !sysSettings.enable_gpu_transcode })} />
+              <ToggleButton checked={sysSettings.enable_gpu_transcode} onChange={() => setSysSettings((s) => ({ ...s, enable_gpu_transcode: !s.enable_gpu_transcode }))} />
             </div>
             {sysSettings.enable_gpu_transcode && (
               <div className="mt-3 ml-6 flex items-start justify-between gap-4 rounded-lg p-3" style={{ background: 'var(--nav-hover-bg)' }}>
@@ -402,7 +398,7 @@ export default function DashboardTab({
                   <h4 className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>GPU 不支持时自动回退 CPU</h4>
                   <p className="mt-0.5 text-[11px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>当 GPU 不支持特定格式解码时，系统自动切换至 CPU 转码。</p>
                 </div>
-                <ToggleButton checked={sysSettings.gpu_fallback_cpu} onChange={() => updateSettings({ gpu_fallback_cpu: !sysSettings.gpu_fallback_cpu })} />
+                <ToggleButton checked={sysSettings.gpu_fallback_cpu} onChange={() => setSysSettings((s) => ({ ...s, gpu_fallback_cpu: !s.gpu_fallback_cpu }))} />
               </div>
             )}
           </div>
@@ -416,7 +412,7 @@ export default function DashboardTab({
               <h4 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>媒体元数据存储位置</h4>
             </div>
             <p className="mt-1 mb-2.5 text-xs leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>自定义媒体元数据的保存路径，留空使用默认。</p>
-            <input type="text" value={sysSettings.metadata_store_path} onChange={(e) => updateSettings({ metadata_store_path: e.target.value })} className="input w-full" placeholder="留空使用默认路径" />
+            <input type="text" value={sysSettings.metadata_store_path} onChange={(e) => setSysSettings((s) => ({ ...s, metadata_store_path: e.target.value }))} className="input w-full" placeholder="留空使用默认路径" />
           </div>
 
           <div style={{ borderTop: '1px solid var(--border-default)' }} />
@@ -428,7 +424,7 @@ export default function DashboardTab({
               <h4 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>播放缓存目录</h4>
             </div>
             <p className="mt-1 mb-2.5 text-xs leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>自定义转码缓存目录，留空使用默认。</p>
-            <input type="text" value={sysSettings.play_cache_path} onChange={(e) => updateSettings({ play_cache_path: e.target.value })} className="input w-full" placeholder="留空使用默认路径" />
+            <input type="text" value={sysSettings.play_cache_path} onChange={(e) => setSysSettings((s) => ({ ...s, play_cache_path: e.target.value }))} className="input w-full" placeholder="留空使用默认路径" />
           </div>
 
           <div style={{ borderTop: '1px solid var(--border-default)' }} />
@@ -442,7 +438,7 @@ export default function DashboardTab({
               </div>
               <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>播放网盘文件时优先使用直链进行在线播放。</p>
             </div>
-            <ToggleButton checked={sysSettings.enable_direct_link} onChange={() => updateSettings({ enable_direct_link: !sysSettings.enable_direct_link })} />
+            <ToggleButton checked={sysSettings.enable_direct_link} onChange={() => setSysSettings((s) => ({ ...s, enable_direct_link: !s.enable_direct_link }))} />
           </div>
 
           <div style={{ borderTop: '1px solid var(--border-default)' }} />
@@ -456,7 +452,7 @@ export default function DashboardTab({
               </div>
               <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>开启后播放器默认使用原始格式直接播放，不自动触发转码。关闭后将根据文件格式自动选择直接播放或 HLS 转码。</p>
             </div>
-            <ToggleButton checked={sysSettings.prefer_direct_play} onChange={() => updateSettings({ prefer_direct_play: !sysSettings.prefer_direct_play })} />
+            <ToggleButton checked={sysSettings.prefer_direct_play} onChange={() => setSysSettings((s) => ({ ...s, prefer_direct_play: !s.prefer_direct_play }))} />
           </div>
 
           <div className="flex items-start justify-between gap-4">
@@ -467,7 +463,7 @@ export default function DashboardTab({
               </div>
               <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>开启后扫描媒体库完成时自动触发视频预处理和字幕预处理。关闭后需手动在预处理页面提交任务。</p>
             </div>
-            <ToggleButton checked={sysSettings.auto_preprocess_on_scan} onChange={() => updateSettings({ auto_preprocess_on_scan: !sysSettings.auto_preprocess_on_scan })} />
+            <ToggleButton checked={sysSettings.auto_preprocess_on_scan} onChange={() => setSysSettings((s) => ({ ...s, auto_preprocess_on_scan: !s.auto_preprocess_on_scan }))} />
           </div>
 
           <div className="flex items-start justify-between gap-4">
@@ -478,34 +474,7 @@ export default function DashboardTab({
               </div>
               <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>开启后播放不支持直接播放的格式时自动触发实时转码。关闭后需手动在媒体详情页触发转码。</p>
             </div>
-            <ToggleButton checked={sysSettings.auto_transcode_on_play} onChange={() => updateSettings({ auto_transcode_on_play: !sysSettings.auto_transcode_on_play })} />
-          </div>
-
-          <div style={{ borderTop: '1px solid var(--border-default)' }} />
-
-          {/* 媒体库分页值 */}
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <Settings size={16} style={{ color: '#8B5CF6' }} />
-              <h4 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>媒体库分页值</h4>
-            </div>
-            <p className="mt-1 mb-2.5 text-xs leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>设置媒体库列表每页显示的媒体数量。设置为 <strong style={{ color: '#F59E0B' }}>0</strong> 时不分页，显示全部内容。<span style={{ color: '#F59E0B' }}>（最大值：100）</span></p>
-            <input
-              type="number"
-              min="0"
-              max="100"
-              value={sysSettings.library_page_size ?? 0}
-              onChange={(e) => {
-                const value = e.target.value
-                // 验证：只允许非负整数且不超过100
-                if (value === '' || (/^\d*$/.test(value) && parseInt(value) <= 100)) {
-                  const numValue = value === '' ? 0 : Math.min(parseInt(value) || 0, 100)
-                  updateSettings({ library_page_size: numValue })
-                }
-              }}
-              className="w-32 input"
-              placeholder="20"
-            />
+            <ToggleButton checked={sysSettings.auto_transcode_on_play} onChange={() => setSysSettings((s) => ({ ...s, auto_transcode_on_play: !s.auto_transcode_on_play }))} />
           </div>
 
           {/* 保存 */}

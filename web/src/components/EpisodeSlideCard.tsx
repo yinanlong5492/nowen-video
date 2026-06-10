@@ -246,14 +246,14 @@ export default function EpisodeSlideCard({ episode: ep, historyRecord, seriesId,
             >
               {isAdmin && (
                 <>
-                  <div className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>剧集管理</div>
+                  <div className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>管理本集</div>
                   <button
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onManualMatch?.() }}
                     className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors hover:bg-neon-blue/5"
                     style={{ color: 'var(--text-secondary)' }}
                   >
                     <Link2 size={14} />
-                    手动匹配剧集
+                    手动匹配
                   </button>
                   <button
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onUnmatch?.() }}
@@ -261,7 +261,7 @@ export default function EpisodeSlideCard({ episode: ep, historyRecord, seriesId,
                     style={{ color: 'var(--text-secondary)' }}
                   >
                     <Unlink size={14} />
-                    解除匹配剧集
+                    解除匹配
                   </button>
                   <button
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onRefreshMetadata?.() }}
@@ -284,7 +284,7 @@ export default function EpisodeSlideCard({ episode: ep, historyRecord, seriesId,
                     className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300"
                   >
                     <Trash2 size={14} />
-                    删除本季
+                    删除本集
                   </button>
                   <div className="my-1 mx-3 h-px" style={{ background: 'var(--border-default)' }} />
                 </>

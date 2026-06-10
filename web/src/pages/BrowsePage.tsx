@@ -9,7 +9,7 @@ import { formatErrMsg } from '@/utils/error'
 import { useWebSocket, WS_EVENTS } from '@/hooks/useWebSocket'
 import { usePageCache, invalidatePageCachePrefix } from '@/hooks/usePageCache'
 import type { Series, MixedItem, Library } from '@/types'
-import MediaCard from '@/components/media/MediaCard'
+import MediaCard from '@/components/MediaCard'
 import Pagination from '@/components/Pagination'
 import { motion, AnimatePresence } from 'framer-motion'
 import {

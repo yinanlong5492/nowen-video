@@ -11,8 +11,8 @@ import ForceChangePasswordPage from '@/pages/ForceChangePasswordPage'
 import { DesktopEventBinder, DesktopServerPicker, UpdateBanner } from '@/desktop'
 
 // 懒加载页面组件 — 按需加载，减少首屏 JS 体积
-const HomePage = lazy(() => import('@/pages/HomePage'))
-const LibraryPage = lazy(() => import('@/pages/Library'))
+const HomePage = lazy(() => import('@/pages/home'))
+const LibraryPage = lazy(() => import('@/pages/LibraryPage'))
 const MediaRouter = lazy(() => import('@/pages/MediaRouter'))
 const MediaDetailPage = lazy(() => import('@/pages/MediaDetailPage'))
 const EpisodeDetailPage = lazy(() => import('@/pages/EpisodeDetailPage'))

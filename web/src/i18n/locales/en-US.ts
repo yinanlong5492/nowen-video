@@ -57,7 +57,6 @@ const enUS: Record<string, string> = {
 
   // ==================== Home ====================
   'home.continueWatching': 'Continue Watching',
-  'home.myLibraries': 'My Libraries',
   'home.recentlyAdded': 'Recently Added',
   'home.recommended': 'Recommended',
   'home.trending': 'Trending',
