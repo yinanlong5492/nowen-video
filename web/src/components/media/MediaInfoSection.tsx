@@ -16,23 +16,38 @@ export default function MediaInfoSection({ media, playInfo: _playInfo }: MediaIn
   const { t } = useTranslation()
   const [plotExpanded, setPlotExpanded] = useState(false)
   const [origPlotExpanded, setOrigPlotExpanded] = useState(false)
-  const isLongPlot = (media.overview?.length || 0) > 200
-  const isLongOrigPlot = (media.original_plot?.length || 0) > 120
+  
+  // 检查媒体数据是否已加载
+  const isLoaded = media && media.title
+  
+  // 预计算文本长度，避免重渲染时的抖动
+  const overviewLength = media.overview?.length || 0
+  const originalPlotLength = media.original_plot?.length || 0
+  const isLongPlot = overviewLength > 200
+  const isLongOrigPlot = originalPlotLength > 120
   // 单集详情页不折叠简介
   const isEpisode = media.media_type === 'episode'
 
+  // 如果数据未加载，显示骨架屏
+  if (!isLoaded) {
+    return (
+      <div className="space-y-6 min-h-[10rem]">
+        <div className="space-y-2">
+          <div className="skeleton h-6 w-16 rounded-md" />
+          <div className="skeleton h-4 w-full rounded-md" />
+          <div className="skeleton h-4 w-full rounded-md" />
+          <div className="skeleton h-4 w-3/4 rounded-md" />
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <>
-
-
-
-
-
-
+    <div className="space-y-6">
       {/* 剧情摘要 (outline)：短摘要，总是全量展示 */}
       {media.outline && media.outline !== media.overview && (
         <section>
-          <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+          <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
             {t('mediaInfo.outline')}
           </h4>
           <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
@@ -45,13 +60,13 @@ export default function MediaInfoSection({ media, playInfo: _playInfo }: MediaIn
       {media.overview && (
         <section>
           {media.outline && media.outline !== media.overview && (
-            <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+            <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
               {t('mediaInfo.plot')}
             </h4>
           )}
-          <div className="relative">
+          <div className="relative min-h-[4rem]">
             <p className={clsx(
-              'text-sm leading-relaxed transition-all duration-500',
+              'text-sm leading-relaxed',
               !isEpisode && !plotExpanded && isLongPlot && 'line-clamp-3'
             )} style={{ color: 'var(--text-secondary)' }}>
               {media.overview}
@@ -78,12 +93,12 @@ export default function MediaInfoSection({ media, playInfo: _playInfo }: MediaIn
       {/* 原文剧情 (originalplot) */}
       {media.original_plot && (
         <section>
-          <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+          <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
             {t('mediaInfo.originalPlot')}
           </h4>
           <div className="relative">
             <p className={clsx(
-              'text-sm leading-relaxed italic transition-all duration-500',
+              'text-sm leading-relaxed italic',
               !origPlotExpanded && isLongOrigPlot && 'line-clamp-2'
             )} style={{ color: 'var(--text-muted)' }}>
               {media.original_plot}
@@ -103,10 +118,6 @@ export default function MediaInfoSection({ media, playInfo: _playInfo }: MediaIn
           )}
         </section>
       )}
-
-
-
-
-    </>
+    </div>
   )
 }

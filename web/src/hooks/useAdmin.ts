@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useToast } from '@/components/Toast'
 import { adminApi, streamApi } from '@/api'
 import type { EditFormData } from '@/components/EditMetadataModal'
+import type { Episode } from '@/types'
 
 export type EntityType = 'series' | 'episode' | 'movie'
 export type DeleteTarget = 'movie' | 'series' | 'season' | 'episode'
@@ -17,6 +18,7 @@ export interface UseEntityAdminOptions<T> {
   onRefresh: () => Promise<void>
   setPosterVersion: (version: number) => void
   onMatchSuccess?: () => void
+  onDeleteNavigate?: () => void
 }
 
 export interface UseEntityAdminReturn {
@@ -53,7 +55,7 @@ const defaultEditForm: EditFormData = {
 }
 
 export function useEntityAdmin<T>(options: UseEntityAdminOptions<T>): UseEntityAdminReturn {
-  const { entityId, entity, type, deleteTarget = type as DeleteTarget, seasonNum, episodeId, onUpdate, onRefresh, setPosterVersion, onMatchSuccess } = options
+  const { entityId, entity, type, deleteTarget = type as DeleteTarget, seasonNum, episodeId, onUpdate, onRefresh, setPosterVersion, onMatchSuccess, onDeleteNavigate } = options
   const toast = useToast()
 
   const [showEditModal, setShowEditModal] = useState(false)
@@ -124,6 +126,7 @@ export function useEntityAdmin<T>(options: UseEntityAdminOptions<T>): UseEntityA
       }
       if (response?.data?.success) {
         setShowDeleteConfirm(false)
+        onDeleteNavigate?.()
       }
     } catch {
       const errorMessages: Record<DeleteTarget, string> = {
@@ -134,7 +137,7 @@ export function useEntityAdmin<T>(options: UseEntityAdminOptions<T>): UseEntityA
       }
       toast.error(errorMessages[deleteTarget] || '删除失败')
     }
-  }, [entityId, type, deleteTarget, seasonNum, episodeId, toast])
+  }, [entityId, type, deleteTarget, seasonNum, episodeId, toast, onDeleteNavigate])
 
   const handleUnmatch = useCallback(async () => {
     if (!entityId) return
@@ -191,5 +194,132 @@ export function useEntityAdmin<T>(options: UseEntityAdminOptions<T>): UseEntityA
     handleRefreshMetadata,
     handleRefreshSuccess,
     handleMatchSuccess,
+  }
+}
+
+interface UseEpisodeAdminProps {
+  episodes: Episode[]
+  onRefresh: () => Promise<void>
+  toast: {
+    success: (message: string) => void
+    error: (message: string) => void
+  }
+}
+
+export function useEpisodeAdmin({ episodes, onRefresh, toast }: UseEpisodeAdminProps) {
+  const [selectedEpisodeId, setSelectedEpisodeId] = useState<string | null>(null)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showUnmatchConfirm, setShowUnmatchConfirm] = useState(false)
+  const [showRefreshModal, setShowRefreshModal] = useState(false)
+  const [showMatchModal, setShowMatchModal] = useState(false)
+
+  const selectedEpisode = episodes.find(e => e.id === selectedEpisodeId)
+
+  const handleEditMetadata = (episodeId: string) => {
+    setSelectedEpisodeId(episodeId)
+    setShowEditModal(true)
+  }
+
+  const handleEditSave = async (form: Record<string, unknown>) => {
+    if (!selectedEpisodeId) return
+    try {
+      await adminApi.update(selectedEpisodeId, 'episode', form)
+      toast.success('保存成功')
+      await onRefresh()
+      setShowEditModal(false)
+    } catch {
+      toast.error('保存失败')
+    }
+  }
+
+  const handleDelete = (episodeId: string) => {
+    setSelectedEpisodeId(episodeId)
+    setShowDeleteConfirm(true)
+  }
+
+  const confirmDelete = async (deleteFiles: boolean) => {
+    if (!selectedEpisodeId) return
+    try {
+      await adminApi.delete(selectedEpisodeId, 'episode', deleteFiles)
+      toast.success('删除成功')
+      await onRefresh()
+      setShowDeleteConfirm(false)
+    } catch {
+      toast.error('删除失败')
+    }
+  }
+
+  const handleUnmatch = (episodeId: string) => {
+    setSelectedEpisodeId(episodeId)
+    setShowUnmatchConfirm(true)
+  }
+
+  const confirmUnmatch = async () => {
+    if (!selectedEpisodeId) return
+    try {
+      await adminApi.unmatch(selectedEpisodeId, 'episode')
+      toast.success('解除匹配成功')
+      await onRefresh()
+      setShowUnmatchConfirm(false)
+    } catch {
+      toast.error('解除匹配失败')
+    }
+  }
+
+  const handleRefreshMetadata = (episodeId: string) => {
+    setSelectedEpisodeId(episodeId)
+    setShowRefreshModal(true)
+  }
+
+  const handleRefreshSuccess = async () => {
+    toast.success('刷新成功')
+    await onRefresh()
+    setShowRefreshModal(false)
+  }
+
+  const handleManualMatch = (episodeId: string) => {
+    setSelectedEpisodeId(episodeId)
+    setShowMatchModal(true)
+  }
+
+  const handleMatchSuccess = async () => {
+    toast.success('匹配成功')
+    await onRefresh()
+    setShowMatchModal(false)
+  }
+
+  const closeAll = () => {
+    setShowEditModal(false)
+    setShowDeleteConfirm(false)
+    setShowUnmatchConfirm(false)
+    setShowRefreshModal(false)
+    setShowMatchModal(false)
+  }
+
+  return {
+    selectedEpisodeId,
+    selectedEpisode,
+    showEditModal,
+    showDeleteConfirm,
+    showUnmatchConfirm,
+    showRefreshModal,
+    showMatchModal,
+    setShowEditModal,
+    setShowDeleteConfirm,
+    setShowUnmatchConfirm,
+    setShowRefreshModal,
+    setShowMatchModal,
+    handleEditMetadata,
+    handleEditSave,
+    handleDelete,
+    confirmDelete,
+    handleUnmatch,
+    confirmUnmatch,
+    handleRefreshMetadata,
+    handleRefreshSuccess,
+    handleManualMatch,
+    handleMatchSuccess,
+    closeAll,
   }
 }

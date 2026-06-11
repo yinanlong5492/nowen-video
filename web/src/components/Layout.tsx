@@ -68,7 +68,8 @@ export default function Layout() {
     setMobileOpen(false)
   }, [location.pathname])
 
-  // 路由切换前保存当前滚动位置，切换后恢复目标页面的滚动位置
+  // 路由切换时恢复目标页面的滚动位置
+  // 使用 requestAnimationFrame + setTimeout 确保 DOM 完全渲染和样式应用后再恢复，避免抖动
   useEffect(() => {
     const mainEl = mainRef.current
     if (!mainEl) return
@@ -76,15 +77,30 @@ export default function Layout() {
     // 仅用 pathname 作为滚动位置 key（search 参数变化不应影响滚动位置）
     const currentKey = SCROLL_KEY_PREFIX + location.pathname
     const savedPos = sessionStorage.getItem(currentKey)
-    if (savedPos) {
-      requestAnimationFrame(() => {
-        mainEl.scrollTop = parseInt(savedPos, 10)
-      })
-    } else {
-      mainEl.scrollTop = 0
+
+    // 使用双重延迟：
+    // 1. 第一个 requestAnimationFrame 等待 DOM 渲染
+    // 2. setTimeout 等待 CSS 样式和动画完成（包括侧边栏宽度动画）
+    // 这样可以避免侧边栏宽度变化和页面过渡动画导致的抖动
+    const restoreScroll = () => {
+      const timer = setTimeout(() => {
+        if (savedPos) {
+          mainEl.scrollTop = parseInt(savedPos, 10)
+        } else {
+          mainEl.scrollTop = 0
+        }
+      }, 150)
+      return () => clearTimeout(timer)
     }
 
+    const rafId = requestAnimationFrame(() => {
+      const cleanup = restoreScroll()
+      return () => cleanup()
+    })
+
     prevPathRef.current = location.pathname
+
+    return () => cancelAnimationFrame(rafId)
   }, [location.pathname])
 
   // 持续保存滚动位置（节流）
@@ -158,7 +174,7 @@ export default function Layout() {
             </div>
           </div>
 
-          <div ref={mainRef} id="main-scroll-container" className="flex-1 overflow-y-auto">
+          <div ref={mainRef} id="main-scroll-container" className="flex-1 overflow-y-auto" style={{ willChange: 'scroll-position', contain: 'layout paint' }}>
             {/* 移动端顶部栏 */}
             <div className="sticky top-0 z-20 flex items-center gap-3 px-4 py-3 md:hidden"
               style={{
@@ -180,7 +196,7 @@ export default function Layout() {
             </div>
 
             <div className="relative">
-              <div className={`px-4 pt-16 pb-6 sm:px-6 lg:px-8 transition-all duration-300 ${
+              <div className={`px-4 pt-16 pb-6 sm:px-6 lg:px-8 ${
                 // 需要全宽展示的页面（文件管理、预处理、音乐库等）不限制最大宽度
                 ['/files', '/preprocess', '/subtitle-preprocess', '/admin', '/collections', '/library'].some(p => location.pathname.startsWith(p))
                   ? 'w-full'

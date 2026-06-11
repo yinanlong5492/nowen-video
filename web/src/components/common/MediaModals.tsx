@@ -1,12 +1,15 @@
-import type { MatchStrategyType } from '@/hooks/useMatch'
-import type { DeleteTarget } from '@/hooks/useEntityAdmin'
+import type { MatchStrategyType } from '@/hooks/useMedia'
+import type { DeleteTarget } from '@/hooks/useAdmin'
+import type { Episode } from '@/types'
+import { streamApi } from '@/api'
 import EditMetadataModal from '@/components/EditMetadataModal'
 import RefreshSingleModal from '@/components/RefreshSingleModal'
 import DeleteConfirmModal from '@/components/DeleteConfirmModal'
+import TrailerModal from '@/components/media/TrailerModal'
 import { MatchModal } from '@/components/common/modals/MatchModal'
 import { UnmatchConfirmModal } from '@/components/common/modals/UnmatchConfirmModal'
 
-export interface DetailPageModalsProps {
+export interface MediaModalsProps {
   showEditModal: boolean
   showDeleteConfirm: boolean
   showUnmatchConfirm: boolean
@@ -60,9 +63,34 @@ export interface DetailPageModalsProps {
   matchModalDefaultTitle?: string
   matchModalOnClose: () => void
   matchModalOnMatchSuccess: () => void
+
+  // TrailerModal props
+  showTrailer?: boolean
+  trailerUrl?: string
+  onCloseTrailer?: () => void
+
+  // ===== 单集弹窗支持 =====
+  episodeMode?: boolean
+  episodeId?: string | null
+  episodeEntity?: Episode | undefined
+  episodeShowEditModal?: boolean
+  episodeShowDeleteConfirm?: boolean
+  episodeShowUnmatchConfirm?: boolean
+  episodeShowRefreshModal?: boolean
+  episodeShowMatchModal?: boolean
+  episodeOnEditSave?: (form: Record<string, unknown>) => void
+  episodeOnEditClose?: () => void
+  episodeOnDelete?: (deleteFiles: boolean) => void
+  episodeOnDeleteClose?: () => void
+  episodeOnUnmatch?: () => void
+  episodeOnUnmatchClose?: () => void
+  episodeOnRefreshClose?: () => void
+  episodeOnRefreshSuccess?: () => void
+  episodeOnMatchClose?: () => void
+  episodeOnMatchSuccess?: () => void
 }
 
-export function DetailPageModals(props: DetailPageModalsProps) {
+export function MediaModals(props: MediaModalsProps) {
   // 根据删除目标类型生成默认的确认信息
   const getDeleteConfirmInfo = () => {
     const deleteTarget = props.deleteTarget || 'movie'
@@ -153,6 +181,80 @@ export function DetailPageModals(props: DetailPageModalsProps) {
         defaultTitle={props.matchModalDefaultTitle}
         onMatchSuccess={props.matchModalOnMatchSuccess}
       />
+
+      {/* 预告片弹窗 */}
+      {props.showTrailer && props.trailerUrl && (
+        <TrailerModal
+          trailerUrl={props.trailerUrl}
+          onClose={props.onCloseTrailer}
+        />
+      )}
+
+      {/* ===== 单集弹窗 ===== */}
+      {props.episodeMode && props.episodeId && (
+        <>
+          {/* 单集编辑元数据弹窗 */}
+          {props.episodeShowEditModal && props.episodeOnEditSave && props.episodeOnEditClose && (
+            <EditMetadataModal
+              type="media"
+              id={props.episodeId}
+              mediaType="episode"
+              entity={props.episodeEntity || null}
+              currentPoster={streamApi.getPosterUrl(props.episodeId)}
+              hasPoster={true}
+              onSave={props.episodeOnEditSave}
+              onClose={props.episodeOnEditClose}
+            />
+          )}
+
+          {/* 单集删除确认弹窗 */}
+          {props.episodeShowDeleteConfirm && props.episodeOnDelete && props.episodeOnDeleteClose && (
+            <DeleteConfirmModal
+              open={props.episodeShowDeleteConfirm}
+              title="删除集"
+              description="确定要删除这一集吗？此操作不可撤销。"
+              hint={'删除后，该集将从媒体库中移除。选择"移除并删除文件"将同时删除本地文件。'}
+              onClose={props.episodeOnDeleteClose}
+              onDelete={props.episodeOnDelete}
+            />
+          )}
+
+          {/* 单集解除匹配确认弹窗 */}
+          {props.episodeShowUnmatchConfirm && props.episodeOnUnmatch && props.episodeOnUnmatchClose && (
+            <UnmatchConfirmModal
+              open={props.episodeShowUnmatchConfirm}
+              title="解除匹配集"
+              description="确定要解除此集的元数据匹配吗？这将清除所有从 TMDb/豆瓣获取的信息。"
+              onClose={props.episodeOnUnmatchClose}
+              onConfirm={props.episodeOnUnmatch}
+            />
+          )}
+
+          {/* 单集刷新元数据弹窗 */}
+          {props.episodeShowRefreshModal && props.episodeOnRefreshClose && props.episodeOnRefreshSuccess && (
+            <RefreshSingleModal
+              open={props.episodeShowRefreshModal}
+              mediaId={props.episodeId}
+              mediaTitle={props.episodeEntity?.title || ''}
+              onClose={props.episodeOnRefreshClose}
+              onSuccess={props.episodeOnRefreshSuccess}
+              onScrape={(id, replaceImages) => import('@/api').then(m => m.adminApi.scrapeEpisodeMetadata(id, replaceImages))}
+            />
+          )}
+
+          {/* 单集手动匹配弹窗 */}
+          {props.episodeShowMatchModal && props.episodeOnMatchClose && props.episodeOnMatchSuccess && (
+            <MatchModal
+              open={props.episodeShowMatchModal}
+              onClose={props.episodeOnMatchClose}
+              mediaId={props.episodeId}
+              strategyType={{ type: 'episode', source: 'tmdb' }}
+              defaultTitle={props.episodeEntity?.title || ''}
+              onMatchSuccess={props.episodeOnMatchSuccess}
+            />
+          )}
+        </>
+      )}
     </>
   )
 }

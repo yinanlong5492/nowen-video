@@ -1,7 +1,5 @@
 import { Link } from 'react-router-dom'
-import { motion } from 'framer-motion'
 import { FolderOpen } from 'lucide-react'
-import { staggerContainerVariants, staggerItemVariants } from '@/lib/motion'
 import type { Library } from '@/types'
 
 interface LibraryWithCovers extends Library {
@@ -14,15 +12,10 @@ interface LibraryGridProps {
 
 export default function LibraryGrid({ libraries }: LibraryGridProps) {
   return (
-    <motion.section
-      variants={staggerContainerVariants}
-      initial="hidden"
-      animate="visible"
-      className="space-y-4 mt-6"
-    >
-      <motion.h2 variants={staggerItemVariants} className="font-display text-xl font-bold tracking-wide" style={{ color: 'var(--text-primary)' }}>
+    <section className="space-y-4">
+      <h2 className="font-display text-xl font-bold tracking-wide" style={{ color: 'var(--text-primary)' }}>
         我的媒体库
-      </motion.h2>
+      </h2>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
         {libraries.map((lib) => (
           <Link
@@ -40,7 +33,7 @@ export default function LibraryGrid({ libraries }: LibraryGridProps) {
                     <img
                       src={url}
                       alt=""
-                      className={`h-full w-full max-w-full max-h-full object-cover transition-transform duration-500 ${index === 0 ? 'rounded-xl' : ''} ${index === lib.coverUrls.length - 1 ? 'rounded-xl' : ''}`}
+                      className={`h-full w-full max-w-full max-h-full object-cover transition-transform duration-500 group-hover:scale-105 ${index === 0 ? 'rounded-xl' : ''} ${index === lib.coverUrls.length - 1 ? 'rounded-xl' : ''}`}
                       loading="lazy"
                       onError={(e) => {
                         (e.target as HTMLImageElement).style.display = 'none'
@@ -56,7 +49,9 @@ export default function LibraryGrid({ libraries }: LibraryGridProps) {
                   </div>
                 </div>
               )}
-              <div className="absolute inset-0 z-10 rounded-xl bg-black/50 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-black/50">
+                <span className="text-2xl font-bold text-white drop-shadow-lg">{lib.name}</span>
+              </div>
             </div>
             <div className="p-2.5">
               <div className="truncate text-sm font-medium text-center align-middle transition-colors text-theme-primary group-hover:text-neon">
@@ -66,6 +61,6 @@ export default function LibraryGrid({ libraries }: LibraryGridProps) {
           </Link>
         ))}
       </div>
-    </motion.section>
+    </section>
   )
 }

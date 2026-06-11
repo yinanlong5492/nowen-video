@@ -1,26 +1,18 @@
-import { useEffect, useState } from 'react'
-import { adminApi, streamApi } from '@/api'
-import { motion } from 'framer-motion'
-import { easeSmooth, durations } from '@/lib/motion'
+import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { adminApi } from '@/api'
 import { HeroSection, CastGrid } from '@/components/media'
 import { useSeasonDetail } from './hooks/useSeasonDetail'
 import { useSeasonUserActions } from './hooks/useSeasonUserActions'
 import { useSegmentAndMode } from './hooks/useSegmentAndMode'
 import SeasonHeader from './components/SeasonHeader'
 import EpisodeList from './components/EpisodeList'
-import { useEntityAdmin } from '@/hooks/useEntityAdmin'
-import { useDetailPageLoader } from '@/hooks/useDetailPageLoader'
-import { useDetailHeroProps } from '@/hooks/useDetailHeroProps'
-import { useDetailPageContext } from '@/hooks/useDetailPageContext'
+import { useDetailPageLoader, useDetailHeroProps, useDetailPageContext } from '@/hooks/useDetailPage'
+import { useEpisodeAdmin } from '@/hooks/useAdmin'
+import { useMediaModalConfig } from '@/hooks/useMediaModalConfig'
 import { createSeriesRefresh } from '@/utils/api'
 import { DetailPageLayout } from '@/components/common/layout/DetailPageLayout'
-import { DetailPageModals } from '@/components/common/DetailPageModals'
-import EditMetadataModal from '@/components/EditMetadataModal'
-import RefreshSingleModal from '@/components/RefreshSingleModal'
-import DeleteConfirmModal from '@/components/DeleteConfirmModal'
-import { MatchModal } from '@/components/common/modals/MatchModal'
-import { UnmatchConfirmModal } from '@/components/common/modals/UnmatchConfirmModal'
-import type { Series } from '@/types'
+import { MediaModals } from '@/components/common/MediaModals'
 
 export default function SeasonDetailPage() {
   const { navigate, isAdmin, toast } = useDetailPageContext()
@@ -35,8 +27,8 @@ export default function SeasonDetailPage() {
     historyMap,
     persons,
     playlists,
-    isFavorited,
-    isWatched,
+    isFavorited: initialIsFavorited,
+    isWatched: initialIsWatched,
     posterVersion,
     setPosterVersion,
     setSeries,
@@ -46,16 +38,13 @@ export default function SeasonDetailPage() {
     handleSeasonChange,
   } = useSeasonDetail()
 
-  const [setIsFavorited] = useState(false)
-  const [setIsWatched] = useState(false)
+  const [isFavorited, setIsFavorited] = useState(initialIsFavorited)
+  const [isWatched, setIsWatched] = useState(initialIsWatched)
 
-  // 单集管理操作状态
-  const [selectedEpisodeId, setSelectedEpisodeId] = useState<string | null>(null)
-  const [showEpisodeEditModal, setShowEpisodeEditModal] = useState(false)
-  const [showEpisodeDeleteConfirm, setShowEpisodeDeleteConfirm] = useState(false)
-  const [showEpisodeUnmatchConfirm, setShowEpisodeUnmatchConfirm] = useState(false)
-  const [showEpisodeRefreshModal, setShowEpisodeRefreshModal] = useState(false)
-  const [showEpisodeMatchModal, setShowEpisodeMatchModal] = useState(false)
+  useEffect(() => {
+    setIsFavorited(initialIsFavorited)
+    setIsWatched(initialIsWatched)
+  }, [initialIsFavorited, initialIsWatched])
 
   const {
     showMoreMenu,
@@ -91,62 +80,51 @@ export default function SeasonDetailPage() {
   const handleRefresh = createSeriesRefresh(seriesId, setSeries, setSeasons)
 
   const {
-    showEditModal,
-    showDeleteConfirm,
-    showUnmatchConfirm,
-    showRefreshModal,
-    showMatchModal,
-    setShowEditModal,
     setShowDeleteConfirm,
     setShowUnmatchConfirm,
     setShowRefreshModal,
     setShowMatchModal,
     handleEditMetadata,
-    handleEditSave,
-    handleDelete,
-    handleUnmatch,
-    handleRefreshSuccess,
-    handleMatchSuccess,
-  } = useEntityAdmin<Series>({
-    entityId: seriesId,
+    modalProps,
+  } = useMediaModalConfig({
     entity: series,
     type: 'series',
-    deleteTarget: 'season',
-    seasonNum: currentSeasonNum,
-    onUpdate: setSeries,
     onRefresh: handleRefresh,
     setPosterVersion,
-    onMatchSuccess: () => setShowMoreMenu(false),
+  })
+
+  // 使用单集管理 Hook
+  const {
+    selectedEpisodeId,
+    selectedEpisode,
+    showEditModal: episodeShowEditModal,
+    showDeleteConfirm: episodeShowDeleteConfirm,
+    showUnmatchConfirm: episodeShowUnmatchConfirm,
+    showRefreshModal: episodeShowRefreshModal,
+    showMatchModal: episodeShowMatchModal,
+    handleEditMetadata: handleEpisodeEditMetadata,
+    handleEditSave: handleEpisodeEditSave,
+    handleDelete: handleEpisodeDelete,
+    confirmDelete: confirmEpisodeDelete,
+    handleUnmatch: handleEpisodeUnmatch,
+    confirmUnmatch: confirmEpisodeUnmatch,
+    handleRefreshMetadata: handleEpisodeRefreshMetadata,
+    handleRefreshSuccess: handleEpisodeRefreshSuccess,
+    handleManualMatch: handleEpisodeManualMatch,
+    handleMatchSuccess: handleEpisodeMatchSuccess,
+    setShowEditModal: setEpisodeShowEditModal,
+    setShowDeleteConfirm: setEpisodeShowDeleteConfirm,
+    setShowUnmatchConfirm: setEpisodeShowUnmatchConfirm,
+    setShowRefreshModal: setEpisodeShowRefreshModal,
+    setShowMatchModal: setEpisodeShowMatchModal,
+  } = useEpisodeAdmin({
+    episodes,
+    onRefresh: refreshSeriesDetail,
+    toast,
   })
 
   const handleManualMatch = () => {
     setShowMatchModal(true)
-  }
-
-  // 单集管理操作函数
-  const handleEpisodeManualMatch = (episodeId: string) => {
-    setSelectedEpisodeId(episodeId)
-    setShowEpisodeMatchModal(true)
-  }
-
-  const handleEpisodeUnmatch = (episodeId: string) => {
-    setSelectedEpisodeId(episodeId)
-    setShowEpisodeUnmatchConfirm(true)
-  }
-
-  const handleEpisodeRefreshMetadata = (episodeId: string) => {
-    setSelectedEpisodeId(episodeId)
-    setShowEpisodeRefreshModal(true)
-  }
-
-  const handleEpisodeEditMetadata = (episodeId: string) => {
-    setSelectedEpisodeId(episodeId)
-    setShowEpisodeEditModal(true)
-  }
-
-  const handleEpisodeDelete = (episodeId: string) => {
-    setSelectedEpisodeId(episodeId)
-    setShowEpisodeDeleteConfirm(true)
   }
 
   const handlePlayEpisode = (id: string) => {
@@ -157,7 +135,7 @@ export default function SeasonDetailPage() {
   }
 
   // 骨架屏
-  const { shouldRender, element } = useDetailPageLoader({
+  const { showSkeleton, skeletonElement } = useDetailPageLoader({
     loading,
     data: series,
     variant: 'season',
@@ -180,10 +158,6 @@ export default function SeasonDetailPage() {
     ),
   })
 
-  if (!shouldRender) {
-    return element
-  }
-
   const firstEpisodeId = episodes.length > 0 ? episodes[0].id : undefined
 
   // ==================== HeroSection Props ====================
@@ -193,7 +167,7 @@ export default function SeasonDetailPage() {
     seasonNum: currentSeasonNum,
     episodeCount: episodes.length,
     firstEpisodeId,
-    overview: series.overview,
+    overview: series?.overview,
     isAdmin,
     showMoreMenu,
     showPlaylistMenu,
@@ -204,7 +178,7 @@ export default function SeasonDetailPage() {
     onRefreshMetadata: () => setShowRefreshModal(true),
     onManualMatch: handleManualMatch,
     onUnmatch: () => setShowUnmatchConfirm(true),
-    onEditMetadata: handleEditMetadata,
+    onEditMetadata: () => seriesId && handleEditMetadata(seriesId),
     onDelete: () => setShowDeleteConfirm(true),
     isFavorited,
     isWatched,
@@ -215,180 +189,94 @@ export default function SeasonDetailPage() {
 
   return (
     <>
-      <DetailPageLayout
-        hero={
-          <HeroSection {...heroProps} />
-        }
-        children={
-          <>
-            {/* 集列表 */}
-            <section>
-              <SeasonHeader
-                seasons={seasons}
-                currentSeasonNum={currentSeasonNum}
-                segments={segments}
-                currentSegmentIndex={currentSegmentIndex}
-                displayMode={displayMode}
-                onSeasonChange={handleSeasonChange}
-                onSegmentChange={setCurrentSegmentIndex}
-                onDisplayModeChange={setDisplayMode}
-              />
+      <AnimatePresence mode="wait">
+        {showSkeleton ? (
+          <motion.div
+            key="detail-skeleton"
+            initial={{ opacity: 1 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15, ease: [0.22, 1, 0.36, 1] }}
+          >
+            {skeletonElement}
+          </motion.div>
+        ) : (
+          <motion.div
+            key="detail-content"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1], delay: 0.05 }}
+          >
+            <DetailPageLayout
+              hero={
+                <HeroSection {...heroProps} />
+              }
+              children={
+                <>
+                  {/* 集列表 */}
+                  <section>
+                    <SeasonHeader
+                      seasons={seasons}
+                      currentSeasonNum={currentSeasonNum}
+                      segments={segments}
+                      currentSegmentIndex={currentSegmentIndex}
+                      displayMode={displayMode}
+                      onSeasonChange={handleSeasonChange}
+                      onSegmentChange={setCurrentSegmentIndex}
+                      onDisplayModeChange={setDisplayMode}
+                    />
 
-              <EpisodeList
-                displayMode={displayMode}
-                displayedEpisodes={displayedEpisodes}
-                historyMap={historyMap}
-                clickedEpisodeIds={clickedEpisodeIds}
-                seriesId={seriesId}
-                seasonNum={currentSeasonNum}
-                onPlay={handlePlayEpisode}
-                onManualMatch={handleEpisodeManualMatch}
-                onUnmatch={handleEpisodeUnmatch}
-                onRefreshMetadata={handleEpisodeRefreshMetadata}
-                onEditMetadata={handleEpisodeEditMetadata}
-                onDelete={handleEpisodeDelete}
-              />
-            </section>
+                    <EpisodeList
+                      displayMode={displayMode}
+                      displayedEpisodes={displayedEpisodes}
+                      historyMap={historyMap}
+                      clickedEpisodeIds={clickedEpisodeIds}
+                      seriesId={seriesId}
+                      seasonNum={currentSeasonNum}
+                      onPlay={handlePlayEpisode}
+                      onManualMatch={handleEpisodeManualMatch}
+                      onUnmatch={handleEpisodeUnmatch}
+                      onRefreshMetadata={handleEpisodeRefreshMetadata}
+                      onEditMetadata={handleEpisodeEditMetadata}
+                      onDelete={handleEpisodeDelete}
+                    />
+                  </section>
 
-            {/* 演职人员 */}
-            <CastGrid persons={persons} />
-          </>
-        }
-      />
+                  {/* 演职人员 */}
+                  <CastGrid persons={persons} />
+                </>
+              }
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      <DetailPageModals
-        showEditModal={showEditModal}
-        showDeleteConfirm={showDeleteConfirm}
-        showUnmatchConfirm={showUnmatchConfirm}
-        showRefreshModal={showRefreshModal}
-        showMatchModal={showMatchModal}
-        
-        editModalType="series"
-        editModalId={seriesId!}
-        editModalTmdbId={series.tmdb_id}
-        editModalMediaType="tv"
-        editModalEntity={series}
-        editModalCurrentPoster={streamApi.getSeriesPosterUrl(series.id)}
-        editModalCurrentBackdrop={streamApi.getSeriesBackdropUrl(series.id)}
-        editModalHasPoster={!!series.poster_path}
-        editModalHasBackdrop={!!series.backdrop_path}
-        editModalOnSave={handleEditSave}
-        editModalOnClose={() => setShowEditModal(false)}
-        
-        deleteModalTitle="删除本季"
-        deleteModalDescription="从媒体库移除后，所选视频文件将不再被扫描添加到当前媒体库中。请确认是否同时删除关联的视频文件。"
-        deleteModalHint="删除本季将移除当前季的记录及缓存文件。"
-        deleteModalOnClose={() => setShowDeleteConfirm(false)}
-        deleteModalOnDelete={handleDelete}
-        
-        unmatchModalOnClose={() => setShowUnmatchConfirm(false)}
-        unmatchModalOnConfirm={handleUnmatch}
-        unmatchModalTitle="解除匹配剧集"
-        unmatchModalDescription="确定要解除此剧集的元数据匹配吗？这将清除所有从 TMDb/豆瓣获取的信息（简介、海报、评分等），但保留原始的剧集名称。"
-        
-        refreshModalMediaId={seriesId!}
-        refreshModalMediaTitle={series?.title || ''}
-        refreshModalOnClose={() => setShowRefreshModal(false)}
-        refreshModalOnSuccess={handleRefreshSuccess}
+      {/* 使用统一的详情页弹窗组件 */}
+      <MediaModals
+        {...modalProps}
         refreshModalOnScrape={(id, replaceImages) => adminApi.scrapeSeriesMetadata(id, replaceImages)}
         
-        matchModalMediaId={seriesId!}
-        matchModalStrategyType={{ type: 'tv', source: 'tmdb' }}
-        matchModalDefaultTitle={series?.title || ''}
-        matchModalOnClose={() => setShowMatchModal(false)}
-        matchModalOnMatchSuccess={handleMatchSuccess}
+        // 单集弹窗支持
+        episodeMode={true}
+        episodeId={selectedEpisodeId}
+        episodeEntity={selectedEpisode}
+        episodeShowEditModal={episodeShowEditModal}
+        episodeShowDeleteConfirm={episodeShowDeleteConfirm}
+        episodeShowUnmatchConfirm={episodeShowUnmatchConfirm}
+        episodeShowRefreshModal={episodeShowRefreshModal}
+        episodeShowMatchModal={episodeShowMatchModal}
+        episodeOnEditSave={handleEpisodeEditSave}
+        episodeOnEditClose={() => setEpisodeShowEditModal(false)}
+        episodeOnDelete={confirmEpisodeDelete}
+        episodeOnDeleteClose={() => setEpisodeShowDeleteConfirm(false)}
+        episodeOnUnmatch={confirmEpisodeUnmatch}
+        episodeOnUnmatchClose={() => setEpisodeShowUnmatchConfirm(false)}
+        episodeOnRefreshClose={() => setEpisodeShowRefreshModal(false)}
+        episodeOnRefreshSuccess={handleEpisodeRefreshSuccess}
+        episodeOnMatchClose={() => setEpisodeShowMatchModal(false)}
+        episodeOnMatchSuccess={handleEpisodeMatchSuccess}
       />
-
-      {/* 单集管理弹窗 */}
-      {selectedEpisodeId && (
-        <>
-          {/* 单集编辑元数据弹窗 */}
-          {showEpisodeEditModal && (
-            <EditMetadataModal
-              type="media"
-              id={selectedEpisodeId}
-              mediaType="episode"
-              entity={episodes.find(e => e.id === selectedEpisodeId) || null}
-              currentPoster={streamApi.getPosterUrl(selectedEpisodeId)}
-              hasPoster={true}
-              onSave={async (form) => {
-                try {
-                  await adminApi.update(selectedEpisodeId, 'episode', form)
-                  toast.success('保存成功')
-                  await refreshSeriesDetail()
-                  setShowEpisodeEditModal(false)
-                } catch {
-                  toast.error('保存失败')
-                }
-              }}
-              onClose={() => setShowEpisodeEditModal(false)}
-            />
-          )}
-
-          {/* 单集删除确认弹窗 */}
-          <DeleteConfirmModal
-            open={showEpisodeDeleteConfirm}
-            title="删除集"
-            description="确定要删除这一集吗？此操作不可撤销。"
-            hint="删除后，该集将从媒体库中移除。选择'移除并删除文件'将同时删除本地文件。"
-            onClose={() => setShowEpisodeDeleteConfirm(false)}
-            onDelete={async (deleteFiles) => {
-              try {
-                await adminApi.delete(selectedEpisodeId, 'episode', deleteFiles)
-                toast.success('删除成功')
-                await refreshSeriesDetail()
-                setShowEpisodeDeleteConfirm(false)
-              } catch {
-                toast.error('删除失败')
-              }
-            }}
-          />
-
-          {/* 单集解除匹配确认弹窗 */}
-          <UnmatchConfirmModal
-            open={showEpisodeUnmatchConfirm}
-            title="解除匹配集"
-            description="确定要解除此集的元数据匹配吗？这将清除所有从 TMDb/豆瓣获取的信息。"
-            onClose={() => setShowEpisodeUnmatchConfirm(false)}
-            onConfirm={async () => {
-              try {
-                await adminApi.unmatch(selectedEpisodeId, 'episode')
-                toast.success('解除匹配成功')
-                await refreshSeriesDetail()
-                setShowEpisodeUnmatchConfirm(false)
-              } catch {
-                toast.error('解除匹配失败')
-              }
-            }}
-          />
-
-          {/* 单集刷新元数据弹窗 */}
-          <RefreshSingleModal
-            open={showEpisodeRefreshModal}
-            mediaId={selectedEpisodeId}
-            mediaTitle={episodes.find(e => e.id === selectedEpisodeId)?.title || ''}
-            onClose={() => setShowEpisodeRefreshModal(false)}
-            onSuccess={async () => {
-              toast.success('刷新成功')
-              await refreshSeriesDetail()
-            }}
-            onScrape={(id, replaceImages) => adminApi.scrapeEpisodeMetadata(id, replaceImages)}
-          />
-
-          {/* 单集手动匹配弹窗 */}
-          <MatchModal
-            open={showEpisodeMatchModal}
-            onClose={() => setShowEpisodeMatchModal(false)}
-            mediaId={selectedEpisodeId}
-            strategyType={{ type: 'episode', source: 'tmdb' }}
-            defaultTitle={episodes.find(e => e.id === selectedEpisodeId)?.title || ''}
-            onMatchSuccess={async () => {
-              toast.success('匹配成功')
-              await refreshSeriesDetail()
-            }}
-          />
-        </>
-      )}
     </>
   )
 }

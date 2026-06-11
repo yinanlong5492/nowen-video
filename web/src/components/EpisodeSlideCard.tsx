@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect, useRef, useLayoutEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { streamApi, userApi } from '@/api'
+import { staggerItemVariants } from '@/lib/motion'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/components/Toast'
 import type { Media, WatchHistory } from '@/types'
@@ -124,7 +126,8 @@ export default function EpisodeSlideCard({ episode: ep, historyRecord, seriesId,
   }
 
   return (
-    <div
+    <motion.div
+      variants={staggerItemVariants}
       onClick={handleCardClick}
       role="link"
       tabIndex={0}
@@ -145,7 +148,7 @@ export default function EpisodeSlideCard({ episode: ep, historyRecord, seriesId,
               }
             }}
             onError={() => setImgError(true)}
-            className="h-full w-full object-cover"
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
         ) : seriesId && seasonNum_ && !seasonFallbackError ? (
           <img
@@ -312,8 +315,10 @@ export default function EpisodeSlideCard({ episode: ep, historyRecord, seriesId,
       <div className="p-2.5">
         <h4
           title={epLabel}
-          className={clsx('truncate text-sm font-medium transition-colors group-hover:text-neon')}
-          style={{ color: watchStatus.watched ? 'var(--text-muted)' : 'var(--text-primary)' }}
+          className={clsx(
+            'truncate text-sm font-medium transition-colors group-hover:text-neon',
+            watchStatus.watched ? 'text-theme-tertiary' : 'text-theme-primary'
+          )}
         >
           {epLabel}
         </h4>
@@ -334,6 +339,6 @@ export default function EpisodeSlideCard({ episode: ep, historyRecord, seriesId,
           <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>{durationText}</p>
         )}
       </div>
-    </div>
+    </motion.div>
   )
 }

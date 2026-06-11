@@ -8,7 +8,7 @@ import RefreshSingleModal from '@/components/RefreshSingleModal'
 import { formatErrMsg } from '@/utils/error'
 import MediaCard from './MediaCard'
 import { motion } from 'framer-motion'
-import { useStaggerVariants } from '@/hooks/useMotion'
+import { useStaggerVariants } from '@/hooks/useAnimation'
 
 interface MediaGridProps {
   items?: Media[]

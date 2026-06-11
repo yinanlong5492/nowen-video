@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { X, Search } from 'lucide-react'
-import { useMatch, MatchStrategyType } from '@/hooks/useMatch'
+import { useMatch, MatchStrategyType } from '@/hooks/useMedia'
 
 interface MatchModalProps {
   open: boolean

@@ -1,5 +1,7 @@
 import type { Media, WatchHistory } from '@/types'
 import clsx from 'clsx'
+import { motion } from 'framer-motion'
+import { staggerContainerVariants, staggerItemVariants } from '@/lib/motion'
 
 interface EpisodeGridProps {
   episodes: Media[]
@@ -10,12 +12,18 @@ interface EpisodeGridProps {
 
 export default function EpisodeGrid({ episodes, historyMap, clickedEpisodeIds, onPlay }: EpisodeGridProps) {
   return (
-    <div className="grid grid-cols-[repeat(27,minmax(0,1fr))] gap-3">
+    <motion.div
+      variants={staggerContainerVariants}
+      initial="hidden"
+      animate="visible"
+      className="grid grid-cols-[repeat(27,minmax(0,1fr))] gap-3"
+    >
       {episodes.map((ep) => {
         const watched = historyMap[ep.id] || clickedEpisodeIds?.has(ep.id)
         return (
-          <button
+          <motion.button
             key={ep.id}
+            variants={staggerItemVariants}
             onClick={() => onPlay(ep.id)}
             className={clsx(
               'aspect-square rounded-lg flex items-center justify-center text-sm font-medium border transition-all hover:scale-105 hover:bg-[var(--neon-blue-10)]',
@@ -26,9 +34,9 @@ export default function EpisodeGrid({ episodes, historyMap, clickedEpisodeIds, o
             style={{ background: 'transparent' }}
           >
             {ep.episode_num}
-          </button>
+          </motion.button>
         )
       })}
-    </div>
+    </motion.div>
   )
 }

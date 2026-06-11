@@ -1,16 +1,14 @@
-import { MediaInfoSection, CastGrid, CollectionCarousel } from '@/components/media'
+import { MediaInfoSection, CastGrid } from '@/components/media'
 import FileInfoSection from '@/components/common/FileInfoSection'
 import VideoInfoSection from '@/components/common/VideoInfoSection'
-import type { Media, Person, FileInfo, VideoStream, PlayInfo } from '@/types'
+import type { Media, MediaPerson, FileDetail, StreamDetail, MediaPlayInfo } from '@/types'
 
 interface MediaDetailSectionsProps {
   media: Media
-  playInfo?: PlayInfo
-  persons: Person[]
-  fileInfo?: FileInfo
-  videoStreams: VideoStream[]
-  mediaId?: string
-  showCollection?: boolean
+  playInfo: MediaPlayInfo | null
+  persons: MediaPerson[]
+  fileInfo?: FileDetail
+  videoStreams: StreamDetail[]
 }
 
 export function MediaDetailSections({
@@ -19,8 +17,6 @@ export function MediaDetailSections({
   persons,
   fileInfo,
   videoStreams,
-  mediaId,
-  showCollection = false,
 }: MediaDetailSectionsProps) {
   return (
     <>
@@ -37,9 +33,6 @@ export function MediaDetailSections({
 
       {/* 视频信息 */}
       {videoStreams.length > 0 && <VideoInfoSection videoStreams={videoStreams} />}
-
-      {/* 合集轮播（仅电影） */}
-      {showCollection && mediaId && <CollectionCarousel mediaId={mediaId} />}
     </>
   )
 }

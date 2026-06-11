@@ -2,7 +2,8 @@
 // 动画工具 Hooks — 封装常用动画逻辑
 // ============================================================
 
-import { useReducedMotion } from 'framer-motion'
+import { useInView, useReducedMotion } from 'framer-motion'
+import { useRef } from 'react'
 import type { Variants } from 'framer-motion'
 import {
   staggerContainerVariants,
@@ -34,4 +35,19 @@ export function useStaggerVariants() {
       ? reducedMotionVariants
       : staggerItemVariants,
   }
+}
+
+/**
+ * 滚动进入视口时触发动画
+ * @param threshold 可见比例阈值 (0-1)
+ * @param once 是否只触发一次
+ */
+export function useScrollReveal(threshold = 0.2, once = true) {
+  const ref = useRef(null)
+  const isInView = useInView(ref, {
+    amount: threshold,
+    once,
+  })
+
+  return { ref, isInView }
 }

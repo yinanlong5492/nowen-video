@@ -10,7 +10,7 @@ interface LibraryListViewProps {
 
 export default function LibraryListView({ items }: LibraryListViewProps) {
   return (
-    <div className="space-y-2 animate-fade-in">
+    <div className="space-y-2">
       {items.map((item) => {
         if (item.type === 'series' && item.series) {
           return <ListSeriesItem key={`s-${item.series.id}`} series={item.series} />

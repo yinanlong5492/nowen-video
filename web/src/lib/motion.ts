@@ -33,11 +33,9 @@ export const durations = {
 export const pageVariants: Variants = {
   initial: {
     opacity: 0,
-    y: 12,
   },
   enter: {
     opacity: 1,
-    y: 0,
     transition: {
       duration: durations.page,
       ease: easeSmooth as unknown as [number, number, number, number],
@@ -45,7 +43,6 @@ export const pageVariants: Variants = {
   },
   exit: {
     opacity: 0,
-    y: -8,
     transition: {
       duration: durations.normal,
       ease: easeExit as unknown as [number, number, number, number],

@@ -1,20 +1,17 @@
-import { motion } from 'framer-motion'
-import { easeSmooth, durations } from '@/lib/motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { CastGrid, HeroSection, SeasonGrid } from '@/components/media'
 import { useSeriesDetail } from './hooks/useSeriesDetail'
 import { useSeriesActions } from './hooks/useSeriesActions'
-import { useEntityAdmin } from '@/hooks/useEntityAdmin'
-import { useIsAdmin } from '@/hooks/useIsAdmin'
-import { useDetailPageLoader } from '@/hooks/useDetailPageLoader'
-import { useDetailHeroProps } from '@/hooks/useDetailHeroProps'
+import { usePermissions } from '@/hooks/useAuth'
+import { useDetailPageLoader, useDetailHeroProps } from '@/hooks/useDetailPage'
+import { useMediaModalConfig } from '@/hooks/useMediaModalConfig'
 import { createSeriesRefresh } from '@/utils/api'
 import { DetailPageLayout } from '@/components/common/layout/DetailPageLayout'
-import { DetailPageModals } from '@/components/common/DetailPageModals'
-import { adminApi, streamApi } from '@/api'
-import type { Series } from '@/types'
+import { MediaModals } from '@/components/common/MediaModals'
+import { adminApi } from '@/api'
 
 export default function SeriesDetailPage() {
-  const isAdmin = useIsAdmin()
+  const { isAdmin } = usePermissions()
 
   const {
     id,
@@ -56,28 +53,16 @@ export default function SeriesDetailPage() {
   const handleRefresh = createSeriesRefresh(id, setSeries, setSeasons)
 
   const {
-    showEditModal,
-    showDeleteConfirm,
-    showUnmatchConfirm,
-    showRefreshModal,
-    showMatchModal,
-    setShowEditModal,
     setShowDeleteConfirm,
     setShowUnmatchConfirm,
     setShowRefreshModal,
     setShowMatchModal,
     handleEditMetadata,
-    handleEditSave,
-    handleDelete,
-    handleUnmatch,
     handleRefreshMetadata,
-    handleRefreshSuccess,
-    handleMatchSuccess,
-  } = useEntityAdmin<Series>({
-    entityId: id,
+    modalProps,
+  } = useMediaModalConfig({
     entity: series,
     type: 'series',
-    onUpdate: setSeries,
     onRefresh: handleRefresh,
     setPosterVersion,
   })
@@ -88,15 +73,11 @@ export default function SeriesDetailPage() {
   }
 
   // 骨架屏
-  const { shouldRender, element } = useDetailPageLoader({
+  const { showSkeleton, skeletonElement } = useDetailPageLoader({
     loading,
     data: series,
     variant: 'series',
   })
-
-  if (!shouldRender) {
-    return element
-  }
 
   // ==================== HeroSection Props ====================
   const heroProps = useDetailHeroProps({
@@ -112,92 +93,76 @@ export default function SeriesDetailPage() {
     onFavorite: handleFavorite,
     onMarkWatched: handleMarkWatched,
     onAddToPlaylist: handleAddToPlaylist,
-    onRefreshMetadata: handleRefreshMetadata,
+    onRefreshMetadata: () => id && handleRefreshMetadata(id),
     onManualMatch: handleManualMatch,
     onUnmatch: () => setShowUnmatchConfirm(true),
-    onEditMetadata: handleEditMetadata,
+    onEditMetadata: () => id && handleEditMetadata(id),
     onDelete: () => setShowDeleteConfirm(true),
   })
 
   return (
     <>
-      <DetailPageLayout
-        hero={
-          <HeroSection {...heroProps} />
-        }
-        children={
-          <>
-            {/* 剧情简介 */}
-            {series.overview && (
-              <section>
-                <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                  {series.overview}
-                </p>
-              </section>
-            )}
+      <AnimatePresence mode="wait">
+        {showSkeleton ? (
+          <motion.div
+            key="detail-skeleton"
+            initial={{ opacity: 1 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15, ease: [0.22, 1, 0.36, 1] }}
+          >
+            {skeletonElement}
+          </motion.div>
+        ) : (
+          <motion.div
+            key="detail-content"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1], delay: 0.05 }}
+          >
+            <DetailPageLayout
+              hero={
+                <HeroSection {...heroProps} />
+              }
+              children={
+                <>
+                  {/* 剧情简介 */}
+                  {series?.overview && (
+                    <section>
+                      <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                        {series.overview}
+                      </p>
+                    </section>
+                  )}
 
-            {/* 季列表 */}
-            <SeasonGrid
-              seriesId={series.id}
-              seasons={seasons}
-              isFavorited={isFavorited}
-              watchedSeasonNums={watchedSeasonNums}
-              onFavorite={handleFavorite}
-              onMarkSeasonWatched={handleMarkSeasonWatched}
-              onManualMatch={handleManualMatch}
-              onUnmatch={() => setShowUnmatchConfirm(true)}
-              onRefreshMetadata={() => setShowRefreshModal(true)}
-              onEditMetadata={handleEditMetadata}
-              onDelete={() => setShowDeleteConfirm(true)}
+                  {/* 季列表 */}
+                  <SeasonGrid
+                    seriesId={series!.id}
+                    seasons={seasons}
+                    isFavorited={isFavorited}
+                    watchedSeasonNums={watchedSeasonNums}
+                    onFavorite={handleFavorite}
+                    onMarkSeasonWatched={handleMarkSeasonWatched}
+                    onManualMatch={handleManualMatch}
+                    onUnmatch={() => setShowUnmatchConfirm(true)}
+                    onRefreshMetadata={() => setShowRefreshModal(true)}
+                    onEditMetadata={() => id && handleEditMetadata(id)}
+                    onDelete={() => setShowDeleteConfirm(true)}
+                  />
+
+                  {/* 演职人员 */}
+                  <CastGrid persons={persons} />
+                </>
+              }
             />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-            {/* 演职人员 */}
-            <CastGrid persons={persons} />
-          </>
-        }
-      />
-
-      <DetailPageModals
-        showEditModal={showEditModal}
-        showDeleteConfirm={showDeleteConfirm}
-        showUnmatchConfirm={showUnmatchConfirm}
-        showRefreshModal={showRefreshModal}
-        showMatchModal={showMatchModal}
-        
-        editModalType="series"
-        editModalId={id!}
-        editModalTmdbId={series.tmdb_id}
-        editModalMediaType="tv"
-        editModalEntity={series}
-        editModalCurrentPoster={streamApi.getSeriesPosterUrl(series.id)}
-        editModalCurrentBackdrop={streamApi.getSeriesBackdropUrl(series.id)}
-        editModalHasPoster={!!series.poster_path}
-        editModalHasBackdrop={!!series.backdrop_path}
-        editModalOnSave={handleEditSave}
-        editModalOnClose={() => setShowEditModal(false)}
-        
-        deleteModalTitle="删除剧集"
-        deleteModalDescription="从媒体库移除后，所选视频文件将不再被扫描添加到当前媒体库中。请确认是否同时删除关联的视频文件。"
-        deleteModalHint="删除剧集合集将同时移除该系列下所有季和集的记录及缓存文件。"
-        deleteModalOnClose={() => setShowDeleteConfirm(false)}
-        deleteModalOnDelete={handleDelete}
-        
-        unmatchModalOnClose={() => setShowUnmatchConfirm(false)}
-        unmatchModalOnConfirm={handleUnmatch}
-        unmatchModalTitle="解除匹配剧集"
-        unmatchModalDescription="确定要解除此剧集的元数据匹配吗？这将清除所有从 TMDb/豆瓣获取的信息（简介、海报、评分等），但保留原始的剧集名称。"
-        
-        refreshModalMediaId={id!}
-        refreshModalMediaTitle={series?.title || ''}
-        refreshModalOnClose={() => setShowRefreshModal(false)}
-        refreshModalOnSuccess={handleRefreshSuccess}
+      <MediaModals
+        {...modalProps}
         refreshModalOnScrape={adminApi.scrapeSeriesMetadata}
-        
-        matchModalMediaId={id!}
-        matchModalStrategyType={{ type: 'tv', source: 'tmdb' }}
-        matchModalDefaultTitle={series?.title || ''}
-        matchModalOnClose={() => setShowMatchModal(false)}
-        matchModalOnMatchSuccess={handleMatchSuccess}
       />
     </>
   )

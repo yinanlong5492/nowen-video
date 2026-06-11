@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { mediaApi, libraryApi, musicApi, audiobookApi, getAudioBookCoverUrl, streamApi } from '@/api'
-import type { WatchHistory, Library, MixedItem, AudioBook, MusicTrack, Media } from '@/types'
+import type { WatchHistory, Library, MixedItem, AudioBook, MusicTrack } from '@/types'
 
 interface LibraryWithRecent extends Library {
   coverUrls: string[]
@@ -11,6 +11,7 @@ interface UseHomeDataReturn {
   continueList: WatchHistory[]
   libraries: LibraryWithRecent[]
   loading: boolean
+  refreshHomeData: () => void
 }
 
 export function useHomeData(): UseHomeDataReturn {
@@ -18,7 +19,7 @@ export function useHomeData(): UseHomeDataReturn {
   const [libraries, setLibraries] = useState<LibraryWithRecent[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const fetchData = async () => {
     setLoading(true)
 
     // 获取继续观看列表
@@ -42,7 +43,7 @@ export function useHomeData(): UseHomeDataReturn {
             // 根据媒体库类型获取对应的最近添加内容
             let recentItems: MixedItem[] = []
             let coverUrls: string[] = []
-            
+
             if (lib.type === 'music') {
               // 音乐库获取最近添加的专辑
               const albumsRes = await musicApi.listAlbums({ library_id: lib.id, page: 1, size: 12, sort: '-added_at' })
@@ -51,18 +52,29 @@ export function useHomeData(): UseHomeDataReturn {
                 type: 'music' as const,
                 music: {
                   id: album.id,
-                  title: album.name,
+                  title: album.title || 'Unknown Album',
                   album_id: album.id,
-                  cover_path: '',
+                  cover_path: album.cover_path || '',
                   year: album.year,
-                  rating: album.rating,
-                  album_name: album.name,
+                  album_name: album.title || '',
                   artist_name: album.artist || '',
                   duration: 0,
                   track_number: 0,
                   disc_number: 0,
                   library_id: lib.id,
-                } as MusicTrack,
+                  file_path: '',
+                  artist: album.artist || '',
+                  album_artist: album.artist || '',
+                  album: album.title || '',
+                  track_id: '',
+                  genre: '',
+                  composer: '',
+                  lyricist: '',
+                  comment: '',
+                  disc_total: 0,
+                  track_total: 0,
+                  isrc: '',
+                } as unknown as MusicTrack,
               }))
               coverUrls = recentItems.slice(0, 4).map(item => {
                 if (item.music?.album_id) {
@@ -111,7 +123,7 @@ export function useHomeData(): UseHomeDataReturn {
                 return ''
               }).filter(Boolean)
             }
-            
+
             librariesWithRecent.push({
               ...lib,
               coverUrls,
@@ -136,11 +148,20 @@ export function useHomeData(): UseHomeDataReturn {
       .catch(() => {
         setLoading(false)
       })
+  }
+
+  useEffect(() => {
+    fetchData()
   }, [])
+
+  const refreshHomeData = () => {
+    fetchData()
+  }
 
   return {
     continueList,
     libraries,
     loading,
+    refreshHomeData,
   }
 }

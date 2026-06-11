@@ -1,19 +1,14 @@
-import { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { streamApi } from '@/api'
-import { motion } from 'framer-motion'
-import { easeSmooth, durations } from '@/lib/motion'
-import { HeroSection, MediaInfoSection, TrailerModal, CastGrid, CollectionCarousel } from '@/components/media'
+import { HeroSection, MediaInfoSection, CastGrid } from '@/components/media'
 import { useMediaDetail } from './hooks/useMediaDetail'
-import { useMediaUserActions } from '@/hooks/useMediaUserActions'
-import { useEntityAdmin } from '@/hooks/useEntityAdmin'
-import { useDetailPageLoader } from '@/hooks/useDetailPageLoader'
-import { useDetailHeroProps } from '@/hooks/useDetailHeroProps'
-import { useDetailPageContext } from '@/hooks/useDetailPageContext'
-import { createDeleteWithNavigate } from '@/utils/navigation'
+import { useMediaUserActions } from '@/hooks/useMedia'
+import { useDetailPageLoader, useDetailHeroProps, useDetailPageContext } from '@/hooks/useDetailPage'
+import { useMediaModalConfig } from '@/hooks/useMediaModalConfig'
 import { DetailPageLayout } from '@/components/common/layout/DetailPageLayout'
-import { DetailPageModals } from '@/components/common/DetailPageModals'
+import { MediaModals } from '@/components/common/MediaModals'
 import { MediaDetailSections } from '@/components/common/layout/MediaDetailSections'
-import { useMediaStreams } from '@/hooks/useMediaStreams'
+import { useMediaStreams } from '@/hooks/useMedia'
 
 export default function MediaDetailPage() {
   const { navigate, isAdmin, toast, t } = useDetailPageContext()
@@ -39,8 +34,6 @@ export default function MediaDetailPage() {
     refreshMediaDetail,
   } = useMediaDetail()
 
-  const [showTrailer, setShowTrailer] = useState(false)
-
   const {
     scraping,
     handleFavorite,
@@ -65,48 +58,31 @@ export default function MediaDetailPage() {
     showUnmatchConfirm,
     showRefreshModal,
     showMatchModal,
-    editForm,
     setShowEditModal,
     setShowDeleteConfirm,
     setShowUnmatchConfirm,
     setShowRefreshModal,
     setShowMatchModal,
     handleEditMetadata,
-    handleEditSave,
-    handleDelete,
-    handleUnmatch,
     handleRefreshMetadata,
-    handleRefreshSuccess,
-    handleMatchSuccess,
-  } = useEntityAdmin({
-    entityId: id,
+    modalProps,
+  } = useMediaModalConfig({
     entity: media,
     type: 'movie',
-    onUpdate: setMedia,
     onRefresh: () => refreshMediaDetail(id!),
     setPosterVersion,
+    onDeleteNavigate: () => navigate('/'),
   })
 
   // ==================== 视频流/音频流提取 ====================
   const { videoStreams, audioStreams } = useMediaStreams(techSpecs?.streams)
 
-  // ==================== 骨架屏 ====================
-  const { shouldRender, element } = useDetailPageLoader({
+  // ==================== 骨架屏 / 内容 — AnimatePresence 平滑过渡 ====================
+  const { showSkeleton, skeletonElement } = useDetailPageLoader({
     loading,
     data: media,
     variant: 'movie',
   })
-
-  if (!shouldRender) {
-    return element
-  }
-
-  // ==================== 删除导航处理 ====================
-  const handleDeleteAndNavigate = createDeleteWithNavigate(
-    handleDelete,
-    navigate,
-    () => setShowDeleteConfirm(false)
-  )
 
   // ==================== HeroSection Props ====================
   const heroProps = useDetailHeroProps({
@@ -125,7 +101,6 @@ export default function MediaDetailPage() {
     onFavorite: handleFavorite,
     onMarkWatched: handleMarkWatched,
     onAddToPlaylist: handleAddToPlaylist,
-    onShowTrailer: media.trailer_url ? () => setShowTrailer(true) : undefined,
     onManualMatch: () => setShowMatchModal(true),
     onUnmatch: () => setShowUnmatchConfirm(true),
     onRefreshMetadata: handleRefreshMetadata,
@@ -135,71 +110,47 @@ export default function MediaDetailPage() {
 
   return (
     <>
-      <DetailPageLayout
-        hero={
-          <HeroSection {...heroProps} />
-        }
-        children={
-          <MediaDetailSections
-            media={media}
-            playInfo={playInfo}
-            persons={persons}
-            fileInfo={fileInfo}
-            videoStreams={videoStreams}
-            mediaId={id}
-            showCollection
-          />
-        }
-      />
+      <AnimatePresence mode="wait">
+        {showSkeleton ? (
+          <motion.div
+            key="detail-skeleton"
+            initial={{ opacity: 1 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15, ease: [0.22, 1, 0.36, 1] }}
+          >
+            {skeletonElement}
+          </motion.div>
+        ) : (
+          <motion.div
+            key="detail-content"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1], delay: 0.05 }}
+          >
+            <DetailPageLayout
+              hero={
+                <HeroSection {...heroProps} />
+              }
+              children={
+                <MediaDetailSections
+                  media={media}
+                  playInfo={playInfo}
+                  persons={persons}
+                  fileInfo={fileInfo}
+                  videoStreams={videoStreams}
+                />
+              }
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {showTrailer && media.trailer_url && (
-        <TrailerModal
-          trailerUrl={media.trailer_url}
-          onClose={() => setShowTrailer(false)}
-        />
-      )}
-
-      <DetailPageModals
-        showEditModal={showEditModal}
-        showDeleteConfirm={showDeleteConfirm}
-        showUnmatchConfirm={showUnmatchConfirm}
-        showRefreshModal={showRefreshModal}
-        showMatchModal={showMatchModal}
-        
-        editModalType="media"
-        editModalId={id!}
-        editModalTmdbId={media.tmdb_id}
-        editModalMediaType={'movie'}
-        editModalEntity={media}
-        editModalCurrentPoster={streamApi.getPosterUrl(media.id, posterVersion)}
-        editModalCurrentBackdrop={streamApi.getBackdropUrl(media.id, posterVersion)}
-        editModalHasPoster={!!media.poster_path}
-        editModalHasBackdrop={!!media.backdrop_path}
-        editModalOnSave={handleEditSave}
-        editModalOnClose={() => setShowEditModal(false)}
-        editModalHasTagline
-        
-        deleteModalTitle="删除影片"
-        deleteModalDescription="从媒体库移除后，所选视频文件将不再被扫描添加到当前媒体库中。请确认是否同时删除关联的视频文件。"
-        deleteModalHint="删除影片将移除当前影片的记录及缓存文件。"
-        deleteModalOnClose={() => setShowDeleteConfirm(false)}
-        deleteModalOnDelete={handleDeleteAndNavigate}
-        
-        unmatchModalOnClose={() => setShowUnmatchConfirm(false)}
-        unmatchModalOnConfirm={handleUnmatch}
+      <MediaModals
+        {...modalProps}
         unmatchModalTitle={t('mediaDetail.unmatchTitle')}
         unmatchModalDescription={t('mediaDetail.unmatchDesc')}
-        
-        refreshModalMediaId={id!}
-        refreshModalMediaTitle={media?.title || ''}
-        refreshModalOnClose={() => setShowRefreshModal(false)}
-        refreshModalOnSuccess={handleRefreshSuccess}
-        
-        matchModalMediaId={id!}
-        matchModalStrategyType={{ type: 'movie', source: 'tmdb' }}
-        matchModalDefaultTitle={media?.title || ''}
-        matchModalOnClose={() => setShowMatchModal(false)}
-        matchModalOnMatchSuccess={handleMatchSuccess}
       />
     </>
   )

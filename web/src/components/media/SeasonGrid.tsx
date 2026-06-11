@@ -1,6 +1,8 @@
 import { useState, useRef, useCallback, useLayoutEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { streamApi } from '@/api'
+import { staggerContainerVariants, staggerItemVariants } from '@/lib/motion'
 import type { SeasonInfo } from '@/types'
 import { Play, Tv, Heart, Eye, MoreHorizontal, Share2, RefreshCw, Link2, Unlink, Pencil, Trash2 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
@@ -111,7 +113,7 @@ function SeasonCard({
           <img
             src={streamApi.getSeasonPosterUrl(seriesId, season.season_num)}
             alt=""
-            className="h-full w-full object-cover"
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
             loading="lazy"
             onError={() => setImgError(true)}
           />
@@ -120,7 +122,7 @@ function SeasonCard({
           <img
             src={streamApi.getPosterUrl(season.episodes[0].id)}
             alt=""
-            className="h-full w-full object-cover"
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
             loading="lazy"
           />
         )}
@@ -194,7 +196,7 @@ function SeasonCard({
 
       {/* 季信息 */}
       <div className="flex flex-1 flex-col p-2.5 text-center">
-        <h4 className="text-sm font-medium line-clamp-1 transition-colors group-hover:text-neon" style={{ color: 'var(--text-primary)' }}>
+        <h4 className="truncate text-sm font-medium text-center align-middle transition-colors text-theme-primary group-hover:text-neon">
           {season.season_num === 0 ? '特别篇' : `第 ${season.season_num} 季`}
         </h4>
         <div className="mt-1 flex items-center justify-center gap-2 text-xs" style={{ color: 'var(--text-tertiary)' }}>
@@ -305,24 +307,30 @@ export default function SeasonGrid({
 
   return (
     <section>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-9">
+      <motion.div
+        variants={staggerContainerVariants}
+        initial="hidden"
+        animate="visible"
+        className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-9"
+      >
         {seasons.map((season) => (
-          <SeasonCard
-            key={season.season_num}
-            seriesId={seriesId}
-            season={season}
-            isFavorited={isFavorited}
-            isSeasonWatched={watchedSeasonNums?.has(season.season_num)}
-            onFavorite={onFavorite}
-            onMarkSeasonWatched={onMarkSeasonWatched}
-            onManualMatch={onManualMatch}
-            onUnmatch={onUnmatch}
-            onRefreshMetadata={onRefreshMetadata}
-            onEditMetadata={onEditMetadata}
-            onDelete={onDelete}
-          />
+          <motion.div key={season.season_num} variants={staggerItemVariants}>
+            <SeasonCard
+              seriesId={seriesId}
+              season={season}
+              isFavorited={isFavorited}
+              isSeasonWatched={watchedSeasonNums?.has(season.season_num)}
+              onFavorite={onFavorite}
+              onMarkSeasonWatched={onMarkSeasonWatched}
+              onManualMatch={onManualMatch}
+              onUnmatch={onUnmatch}
+              onRefreshMetadata={onRefreshMetadata}
+              onEditMetadata={onEditMetadata}
+              onDelete={onDelete}
+            />
+          </motion.div>
         ))}
-      </div>
+      </motion.div>
     </section>
   )
 }

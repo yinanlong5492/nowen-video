@@ -1,10 +1,10 @@
 import { Link, useNavigate } from 'react-router-dom'
-import { Play, Tv, Film, Music, Heart, Eye, MoreHorizontal, Share2, RefreshCw, Link2, Unlink, Pencil, Trash2, Loader2 } from 'lucide-react'
-import { streamApi, musicApi, userApi, seriesApi } from '@/api'
-import type { Media, Series, MusicTrack } from '@/types'
-import { useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
+import { Play, Tv, Film, Music, Heart, Eye, MoreHorizontal, Share2, RefreshCw, Link2, Unlink, Pencil, Trash2 } from 'lucide-react'
+import { streamApi, musicApi, userApi, seriesApi, getAudioBookCoverUrl } from '@/api'
+import type { Media, Series, MusicTrack, WatchHistory, AudioBook } from '@/types'
+import { useRef, useCallback, useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { springDefault } from '@/lib/motion'
 import { usePosterVersion } from '@/stores/mediaRefresh'
 import { useMusicPlayerStore } from '@/stores/musicPlayer'
@@ -17,7 +17,10 @@ interface MediaCardProps {
   media?: Media
   series?: Series
   music?: MusicTrack
+  watchHistory?: WatchHistory
+  audiobook?: AudioBook
   contentType?: ContentType
+  watchedLabel?: (percent: number) => string
   onManualMatch?: (id: string) => void
   onUnmatch?: (id: string) => void
   onRefreshMetadata?: (id: string) => void
@@ -25,7 +28,7 @@ interface MediaCardProps {
   onDelete?: (id: string) => void
 }
 
-export default function MediaCard({ media, series, music, contentType, onManualMatch, onUnmatch, onRefreshMetadata, onEditMetadata, onDelete }: MediaCardProps) {
+export default function MediaCard({ media, series, music, watchHistory, audiobook, contentType, watchedLabel, onManualMatch, onUnmatch, onRefreshMetadata, onEditMetadata, onDelete }: MediaCardProps) {
   const cardRef = useRef<HTMLDivElement>(null)
   const { playTrack } = useMusicPlayerStore()
   const toast = useToast()
@@ -34,23 +37,24 @@ export default function MediaCard({ media, series, music, contentType, onManualM
   const [isFavorited, setIsFavorited] = useState(false)
   const [isWatched, setIsWatched] = useState(false)
   const [showMore, setShowMore] = useState(false)
-  const [favoriting, setFavoriting] = useState(false)
-  const [markingWatched, setMarkingWatched] = useState(false)
   const moreBtnRef = useRef<HTMLButtonElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0 })
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (showMore && moreBtnRef.current) {
-      const rect = moreBtnRef.current.getBoundingClientRect()
-      setDropdownPos({
-        top: rect.bottom + 4,
-        left: rect.left + rect.width / 2,
-      })
+      const updatePosition = () => {
+        const rect = moreBtnRef.current!.getBoundingClientRect()
+        setDropdownPos({
+          top: rect.bottom + 4,
+          left: rect.left + rect.width / 2,
+        })
+      }
+      // 使用 requestAnimationFrame 确保 DOM 已更新
+      requestAnimationFrame(updatePosition)
     }
   }, [showMore])
 
-  // 格式化时长
   const formatDuration = (seconds: number) => {
     if (!seconds) return ''
     const h = Math.floor(seconds / 3600)
@@ -59,7 +63,6 @@ export default function MediaCard({ media, series, music, contentType, onManualM
     return `${m}m`
   }
 
-  // 格式化音乐时长（分:秒）
   const formatMusicDuration = (seconds: number) => {
     if (!seconds) return ''
     const m = Math.floor(seconds / 60)
@@ -69,39 +72,58 @@ export default function MediaCard({ media, series, music, contentType, onManualM
 
   const navigate = useNavigate()
 
-  // 确定链接目标和显示数据
-  const isSeries = !!series || !!(media?.series_id)
+  const isWatchHistory = !!watchHistory
+  const isSeries = !!series || !!(media?.series_id) || !!(watchHistory?.media.series_id)
   const isMusic = !!music
-  const seriesData = series || media?.series
+  const isAudioBook = !!audiobook
+  const seriesData = series || media?.series || watchHistory?.media.series
 
-  // 详情页链接（点击名字/其他区域）
+  const watchedPercent = isWatchHistory 
+    ? Math.round((watchHistory.position / watchHistory.duration) * 100) 
+    : 0
+
   let detailTo: string
   let currentId: string
   if (isMusic) {
     detailTo = '/music'
-    currentId = ''
+    currentId = music?.id || ''
+  } else if (isAudioBook && audiobook) {
+    detailTo = `/library/${audiobook.library_id}`
+    currentId = audiobook.id
+  } else if (isWatchHistory) {
+    detailTo = watchHistory.media.series_id 
+      ? `/series/${watchHistory.media.series_id}` 
+      : `/media/${watchHistory.media_id}`
+    currentId = watchHistory.media_id
   } else if (series) {
     detailTo = `/series/${series.id}`
     currentId = series.id
-  } else if (media!.series_id) {
-    detailTo = `/series/${media!.series_id}`
-    currentId = media!.id
+  } else if (media && media.series_id) {
+    detailTo = `/series/${media.series_id}`
+    currentId = media.id
+  } else if (media) {
+    detailTo = `/media/${media.id}`
+    currentId = media.id
   } else {
-    detailTo = `/media/${media!.id}`
-    currentId = media!.id
+    detailTo = '/'
+    currentId = ''
   }
 
-  // 播放/阅读链接（点击封面中间的播放按钮）
-  // 音乐直接播放，非系列的独立媒体直接进入播放页，系列进入详情页
   let playTo: string
   if (isMusic) {
     playTo = '/music'
+  } else if (isAudioBook && audiobook) {
+    playTo = `/library/${audiobook.library_id}`
+  } else if (isWatchHistory) {
+    playTo = `/play/${watchHistory.media_id}`
   } else if (series) {
     playTo = `/series/${series.id}`
-  } else if (media!.series_id) {
-    playTo = `/series/${media!.series_id}`
+  } else if (media && media.series_id) {
+    playTo = `/series/${media.series_id}`
+  } else if (media) {
+    playTo = `/play/${media.id}`
   } else {
-    playTo = `/play/${media!.id}`
+    playTo = '/'
   }
 
   let title: string
@@ -110,33 +132,64 @@ export default function MediaCard({ media, series, music, contentType, onManualM
   let posterUrl: string
   let hasPoster: boolean
 
-  if (isMusic) {
-    title = music!.title
-    year = music!.year
+  if (isMusic && music) {
+    title = music.title || 'Unknown'
+    year = music.year || 0
     rating = 0
-    posterUrl = musicApi.getTrackCoverUrl(music!.id)
-    hasPoster = true
+    if (music.album_id) {
+      posterUrl = musicApi.getAlbumCoverUrl(music.album_id)
+      hasPoster = true
+    } else if (music.cover_path) {
+      posterUrl = musicApi.getCoverUrlFromPath(music.cover_path)
+      hasPoster = true
+    } else {
+      posterUrl = ''
+      hasPoster = false
+    }
+  } else if (isAudioBook && audiobook) {
+    title = audiobook.title || 'Unknown'
+    year = audiobook.year || 0
+    rating = 0
+    if (audiobook.cover_path) {
+      posterUrl = getAudioBookCoverUrl(audiobook.id)
+      hasPoster = true
+    } else {
+      posterUrl = ''
+      hasPoster = false
+    }
+  } else if (isWatchHistory) {
+    if (watchHistory.media.media_type === 'episode' && watchHistory.media.episode_title) {
+      title = watchHistory.media.episode_title
+    } else {
+      title = watchHistory.media.title
+    }
+    year = watchHistory.media.year
+    rating = watchHistory.media.rating
+    const posterVersion = usePosterVersion()
+    posterUrl = streamApi.getPosterUrl(watchHistory.media_id, posterVersion)
+    hasPoster = !!watchHistory.media.poster_path
   } else {
-    title = series ? series.title : media!.title
-    year = series ? series.year : media!.year
-    rating = series ? series.rating : media!.rating
-    // 订阅全局海报版本戳：刮削完成/元数据替换后自动刷新图片缓存
+    title = series ? series.title : (media ? media.title : 'Unknown')
+    year = series ? series.year : (media ? media.year : 0)
+    rating = series ? series.rating : (media ? media.rating : 0)
     const posterVersion = usePosterVersion()
     posterUrl = series
       ? streamApi.getSeriesPosterUrl(series.id, posterVersion)
-      : media!.series_id
-        ? streamApi.getSeriesPosterUrl(media!.series_id, posterVersion)
-        : streamApi.getPosterUrl(media!.id, posterVersion)
+      : media && media.series_id
+        ? streamApi.getSeriesPosterUrl(media.series_id, posterVersion)
+        : media
+          ? streamApi.getPosterUrl(media.id, posterVersion)
+          : ''
 
-    // 检查是否有真实海报（poster_path 非空）
     hasPoster = series
       ? !!series.poster_path
-      : media!.series_id
-        ? !!(media!.series?.poster_path) || !!media!.poster_path
-        : !!media!.poster_path
+      : media && media.series_id
+        ? !!(media.series?.poster_path) || !!media.poster_path
+        : media
+          ? !!media.poster_path
+          : false
   }
 
-  // 点击播放按钮 — 阻止冒泡，导航到播放页或直接播放音乐
   const handlePlayClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
@@ -147,7 +200,17 @@ export default function MediaCard({ media, series, music, contentType, onManualM
     }
   }, [navigate, playTo, isMusic, music, playTrack])
 
-  const mediaId = isMusic ? music!.id : series ? series.id : media!.id
+  const mediaId = isMusic 
+    ? (music ? music.id : '') 
+    : isAudioBook 
+      ? (audiobook ? audiobook.id : '') 
+      : isWatchHistory 
+        ? watchHistory.media_id 
+        : series 
+          ? series.id 
+          : media 
+            ? media.id 
+            : ''
 
   useEffect(() => {
     if (!user || isMusic) return
@@ -162,52 +225,38 @@ export default function MediaCard({ media, series, music, contentType, onManualM
         }
       }).catch(() => {})
     }
-  }, [mediaId, user, isMusic, isSeries])
+  }, [mediaId, user, isMusic, isSeries, isWatchHistory])
 
-  const handleFavorite = async (e: React.MouseEvent) => {
+  const handleFavorite = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     if (!user) { toast.info('请先登录'); return }
-    if (favoriting) return
-    
-    setFavoriting(true)
-    try {
-      if (isFavorited) {
-        await userApi.removeFavorite(mediaId)
-        setIsFavorited(false)
-        toast.success('已取消收藏')
-      } else {
-        await userApi.addFavorite(mediaId)
-        setIsFavorited(true)
-        toast.success('已加入收藏')
-      }
-    } catch {
-      toast.error('操作失败')
-    } finally {
-      setFavoriting(false)
-    }
+    const apiCall = isFavorited ? userApi.removeFavorite(mediaId) : userApi.addFavorite(mediaId)
+    apiCall.then(() => {
+      setIsFavorited(!isFavorited)
+      toast.success(isFavorited ? '已取消收藏' : '已加入收藏')
+    }).catch(() => toast.error('操作失败'))
   }
 
   const handleMarkWatched = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     if (!user) { toast.info('请先登录'); return }
-    if (markingWatched) return
-    
-    setMarkingWatched(true)
-    try {
-      if (media) {
-        const duration = media.duration || 3600
-        if (isWatched) {
-          await userApi.updateProgress(media.id, 0, duration)
+    if (media) {
+      const duration = media.duration || 3600
+      if (isWatched) {
+        userApi.updateProgress(media.id, 0, duration).then(() => {
           setIsWatched(false)
           toast.success('已取消标记')
-        } else {
-          await userApi.updateProgress(media.id, duration, duration)
+        }).catch(() => toast.error('操作失败'))
+      } else {
+        userApi.updateProgress(media.id, duration, duration).then(() => {
           setIsWatched(true)
           toast.success('已标记为已观看')
-        }
-      } else if (series) {
+        }).catch(() => toast.error('操作失败'))
+      }
+    } else if (series) {
+      try {
         let allEpisodes: Media[] = series.episodes || []
         if (allEpisodes.length === 0) {
           const seasonsRes = await seriesApi.seasons(series.id)
@@ -241,20 +290,19 @@ export default function MediaCard({ media, series, music, contentType, onManualM
         } else {
           toast.info('暂无剧集信息')
         }
-      } else {
-        toast.info('暂无法标记此内容')
+      } catch {
+        toast.error('操作失败')
       }
-    } catch {
-      toast.error('操作失败')
-    } finally {
-      setMarkingWatched(false)
+    } else {
+      toast.info('暂无法标记此内容')
     }
   }
 
   const handleMore = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setShowMore(!showMore)
+    // 确保点击按钮时总是打开弹窗，不受遮罩层影响
+    setShowMore(true)
   }
 
   return (
@@ -266,21 +314,20 @@ export default function MediaCard({ media, series, music, contentType, onManualM
     >
       <Link to={detailTo}>
         <div>
-          {/* 海报区域 */}
-          <div className="relative aspect-[2/3] rounded-xl bg-theme-bg-surface isolate overflow-hidden"
-          >
+          <div className={`relative rounded-xl bg-theme-bg-surface isolate overflow-hidden ${
+            isMusic ? 'aspect-square' : isWatchHistory ? 'aspect-[16/9]' : 'aspect-[2/3]'
+          }`}>
             {hasPoster ? (
               <img
                 src={posterUrl}
                 alt={title}
-                className="h-full w-full object-cover"
+                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                 loading="lazy"
                 onError={(e) => {
                   (e.target as HTMLImageElement).style.display = 'none'
                 }}
               />
             ) : null}
-            {/* 占位（无海报或海报加载失败时可见） */}
             <div className="absolute inset-0 -z-10 flex flex-col items-center justify-center gap-2"
               style={{
                 background: 'linear-gradient(180deg, #1a1b2e 0%, #0f1019 100%)',
@@ -299,16 +346,8 @@ export default function MediaCard({ media, series, music, contentType, onManualM
               </span>
             </div>
 
-            {/* 悬停暗色遮罩 + 播放按钮 */}
-            <div 
-              className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-xl bg-black/50 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-              }}
-            >
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-xl bg-black/50 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
               <button
-                type="button"
                 onClick={handlePlayClick}
                 className="flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 hover:scale-125 cursor-pointer"
                 style={{
@@ -319,10 +358,8 @@ export default function MediaCard({ media, series, music, contentType, onManualM
               >
                 <Play size={18} className="ml-0.5 text-white" fill="white" />
               </button>
-
             </div>
 
-            {/* 音乐类型标识 */}
             {isMusic && (
               <div className="absolute bottom-2 right-2 flex h-6 w-6 items-center justify-center rounded-md"
                 style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
@@ -331,10 +368,9 @@ export default function MediaCard({ media, series, music, contentType, onManualM
               </div>
             )}
 
-            {/* 分辨率标签（仅电影） — 使用 isolate 隔离 3D 变换影响 */}
-            {!isSeries && !isMusic && media!.resolution && (
+            {!isSeries && !isMusic && !isWatchHistory && media && media.resolution && (
               <span className="badge-neon absolute right-2 top-2 z-20" style={{ transform: 'translateZ(0)' }}>
-                {media!.resolution}
+                {media.resolution}
               </span>
             )}
 
@@ -351,86 +387,76 @@ export default function MediaCard({ media, series, music, contentType, onManualM
               </span>
             )}
 
+            {isWatchHistory && (
+              <>
+                <span className="absolute left-1.5 top-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm z-20">
+                  {watchedPercent}%
+                </span>
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white/10 z-20">
+                  <div
+                    className="h-full transition-all"
+                    style={{
+                      width: `${watchedPercent}%`,
+                      background: 'linear-gradient(90deg, var(--neon-blue), var(--neon-purple))',
+                      boxShadow: 'var(--neon-glow-shadow-sm)',
+                    }}
+                  />
+                </div>
+              </>
+            )}
+
             {!isMusic && (
-              <div 
-                className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-1.5 rounded-b-xl px-2 py-3 pt-8 z-20 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-                onClick={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                }}
-              >
+              <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-1.5 rounded-b-xl px-2 py-3 pt-8 z-10 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
                 <button
-                  type="button"
                   onClick={handleFavorite}
-                  disabled={favoriting}
-                  className="flex h-9 w-9 items-center justify-center rounded-full transition-all hover:scale-110 hover:bg-white/10 disabled:cursor-not-allowed"
+                  className="flex h-9 w-9 items-center justify-center rounded-full transition-all hover:scale-110 hover:bg-white/10"
                   style={{ color: isFavorited ? '#EF4444' : '#ffffff' }}
                   title={isFavorited ? '取消收藏' : '加入收藏'}
                 >
-                  {favoriting ? (
-                    <Loader2 size={18} className="animate-spin" />
-                  ) : (
-                    <Heart size={20} fill={isFavorited ? 'currentColor' : 'none'} />
-                  )}
+                  <Heart size={20} fill={isFavorited ? 'currentColor' : 'none'} />
                 </button>
                 <button
-                  type="button"
                   onClick={handleMarkWatched}
-                  disabled={markingWatched}
-                  className="flex h-9 w-9 items-center justify-center rounded-full transition-all hover:scale-110 hover:bg-white/10 disabled:cursor-not-allowed"
+                  className="flex h-9 w-9 items-center justify-center rounded-full transition-all hover:scale-110 hover:bg-white/10"
                   style={{ color: isWatched ? '#22C55E' : '#ffffff' }}
                   title={isWatched ? '取消标记' : '标记为已观看'}
                 >
-                  {markingWatched ? (
-                    <Loader2 size={18} className="animate-spin" />
-                  ) : (
-                    <Eye size={20} />
-                  )}
+                  <Eye size={20} />
                 </button>
                 <div className="relative">
                   <button
-                    type="button"
                     ref={moreBtnRef}
                     onClick={handleMore}
                     className="flex h-9 w-9 items-center justify-center rounded-full transition-all hover:scale-110 hover:bg-white/10"
-                    style={{ color: '#ffffff' }}
+                    style={{ color: '#ffffff', zIndex: 51 }}
                     title="更多"
                   >
                     <MoreHorizontal size={20} />
                   </button>
-                  <AnimatePresence>
-                    {showMore && createPortal(
-                      <div ref={dropdownRef}>
-                        <motion.div
-                          className="fixed inset-0 z-40"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false) }}
-                        />
-                        <motion.div
-                          className="fixed z-50 min-w-[200px] rounded-xl py-1 shadow-2xl"
-                          style={{
-                            background: 'var(--bg-elevated)',
-                            border: '1px solid var(--glass-border)',
-                            backdropFilter: 'blur(20px)',
-                            top: dropdownPos.top,
-                            left: dropdownPos.left,
-                            transform: 'translateX(-50%)',
-                          }}
-                          initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                          transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-                        >
+                  {showMore && (
+                    <div className="fixed inset-0 z-40" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false) }} />
+                  )}
+                  {showMore && createPortal(
+                    <div ref={dropdownRef}>
+                      <div className="fixed inset-0 z-40" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false) }} />
+                      <div
+                        className="fixed z-50 min-w-[200px] rounded-xl py-1 shadow-2xl"
+                        style={{
+                          background: 'var(--bg-elevated)',
+                          border: '1px solid var(--glass-border)',
+                          backdropFilter: 'blur(20px)',
+                          top: dropdownPos.top,
+                          left: dropdownPos.left,
+                          transform: 'translateX(-50%)',
+                        }}
+                      >
                         {isAdmin && (
                           <>
                             <div className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
                               {contentType === 'movie' ? '管理电影' : contentType === 'series' ? '管理剧集' : contentType === 'season' ? '管理本季' : contentType === 'episode' ? '管理本集' : '管理'}
                             </div>
                             <button
-                              type="button"
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onManualMatch ? onManualMatch(currentId) : navigate(detailTo) }}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); if (onManualMatch) { onManualMatch(currentId) } else { toast.info('此功能暂不可用') } }}
                               className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors hover:bg-neon-blue/5"
                               style={{ color: 'var(--text-secondary)' }}
                             >
@@ -438,8 +464,7 @@ export default function MediaCard({ media, series, music, contentType, onManualM
                               手动匹配
                             </button>
                             <button
-                              type="button"
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onUnmatch ? onUnmatch(currentId) : navigate(detailTo) }}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); if (onUnmatch) { onUnmatch(currentId) } else { toast.info('此功能暂不可用') } }}
                               className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors hover:bg-neon-blue/5"
                               style={{ color: 'var(--text-secondary)' }}
                             >
@@ -447,8 +472,7 @@ export default function MediaCard({ media, series, music, contentType, onManualM
                               解除匹配
                             </button>
                             <button
-                              type="button"
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onRefreshMetadata ? onRefreshMetadata(currentId) : navigate(detailTo) }}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); if (onRefreshMetadata) { onRefreshMetadata(currentId) } else { toast.info('此功能暂不可用') } }}
                               className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors hover:bg-neon-blue/5"
                               style={{ color: 'var(--text-secondary)' }}
                             >
@@ -456,8 +480,7 @@ export default function MediaCard({ media, series, music, contentType, onManualM
                               刷新元数据
                             </button>
                             <button
-                              type="button"
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onEditMetadata ? onEditMetadata(currentId) : navigate(detailTo) }}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); if (onEditMetadata) { onEditMetadata(currentId) } else { toast.info('此功能暂不可用') } }}
                               className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors hover:bg-neon-blue/5"
                               style={{ color: 'var(--text-secondary)' }}
                             >
@@ -465,8 +488,7 @@ export default function MediaCard({ media, series, music, contentType, onManualM
                               编辑元数据
                             </button>
                             <button
-                              type="button"
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); onDelete ? onDelete(currentId) : navigate(detailTo) }}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMore(false); if (onDelete) { onDelete(currentId) } else { toast.info('此功能暂不可用') } }}
                               className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300"
                             >
                               <Trash2 size={14} />
@@ -476,7 +498,6 @@ export default function MediaCard({ media, series, music, contentType, onManualM
                           </>
                         )}
                         <button
-                          type="button"
                           onClick={(e) => {
                             e.preventDefault(); e.stopPropagation(); setShowMore(false)
                             const url = `${window.location.origin}${detailTo}`
@@ -490,47 +511,58 @@ export default function MediaCard({ media, series, music, contentType, onManualM
                           <Share2 size={14} />
                           分享链接
                         </button>
-                      </motion.div>
+                      </div>
                     </div>,
                     document.body
                   )}
-                  </AnimatePresence>
                 </div>
               </div>
             )}
           </div>
 
-          {/* 信息区域 */}
           <div className="px-2 pt-2.5 pb-2 text-center">
             <h3
-              className="truncate text-sm font-medium leading-snug text-theme-primary transition-colors duration-200 hover:text-neon cursor-pointer"
+              className="truncate text-sm font-medium leading-snug text-theme-primary transition-colors duration-200 group-hover:text-neon cursor-pointer"
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigate(detailTo) }}
               title={title}
             >
               {title}
             </h3>
-            <div className="mt-1 flex items-center justify-center gap-1.5 text-xs text-theme-secondary overflow-hidden">
-              {isMusic && music?.artist && <span className="flex-shrink-0 truncate">{music.artist}</span>}
-              {year > 0 && <span className="flex-shrink-0">{year}</span>}
-              {isSeries && seriesData && seriesData.season_count > 0 && (
-                <>
-                  <span className="text-neon-blue/30 flex-shrink-0">·</span>
-                  <span className="flex-shrink-0">{seriesData.season_count} 季 · {seriesData.episode_count} 集</span>
-                </>
-              )}
-              {isMusic && music?.duration > 0 && (
-                <>
-                  <span className="text-neon-blue/30 flex-shrink-0">·</span>
-                  <span className="flex-shrink-0">{formatMusicDuration(music.duration)}</span>
-                </>
-              )}
-              {!isSeries && !isMusic && media!.duration > 0 && (
-                <>
-                  <span className="text-neon-blue/30 flex-shrink-0">·</span>
-                  <span className="flex-shrink-0">{formatDuration(media!.duration)}</span>
-                </>
-              )}
-            </div>
+            {isWatchHistory && watchHistory.media.media_type === 'episode' && (watchHistory.media.season_num || watchHistory.media.episode_num) && (
+              <p className="mt-0.5 truncate text-xs text-theme-secondary">
+                第{watchHistory.media.season_num || 0}季 第{watchHistory.media.episode_num || 0}集
+              </p>
+            )}
+            {!(isWatchHistory && watchHistory.media.media_type === 'episode') && (
+              <div className="mt-1 flex items-center justify-center gap-1.5 text-xs text-theme-secondary overflow-hidden">
+                {isMusic && music?.artist && <span className="flex-shrink-0 truncate">{music.artist}</span>}
+                {isAudioBook && audiobook?.author && <span className="flex-shrink-0 truncate">{audiobook.author}</span>}
+                {year > 0 && <span className="flex-shrink-0">{year}</span>}
+                {isSeries && seriesData && seriesData.season_count > 0 && (
+                  <>
+                    <span className="text-neon-blue/30 flex-shrink-0">·</span>
+                    <span className="flex-shrink-0">{seriesData.season_count} 季 · {seriesData.episode_count} 集</span>
+                  </>
+                )}
+                {isMusic && music?.duration > 0 && (
+                  <>
+                    <span className="text-neon-blue/30 flex-shrink-0">·</span>
+                    <span className="flex-shrink-0">{formatMusicDuration(music.duration)}</span>
+                  </>
+                )}
+                {!isSeries && !isMusic && !isAudioBook && !isWatchHistory && media && media.duration > 0 && (
+                  <>
+                    <span className="text-neon-blue/30 flex-shrink-0">·</span>
+                    <span className="flex-shrink-0">{formatDuration(media.duration)}</span>
+                  </>
+                )}
+              </div>
+            )}
+            {isWatchHistory && watchedLabel && (
+              <p className="mt-1 text-[11px] text-theme-tertiary">
+                观看进度：{watchedLabel(watchedPercent)}
+              </p>
+            )}
           </div>
         </div>
       </Link>

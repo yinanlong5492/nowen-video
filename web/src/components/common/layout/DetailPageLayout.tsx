@@ -10,18 +10,20 @@ interface DetailPageLayoutProps {
 
 export function DetailPageLayout({ hero, children, modals, className = '' }: DetailPageLayoutProps) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: durations.page, ease: easeSmooth }}
+    <div
       className={`relative -mx-4 -mt-16 sm:-mx-6 lg:-mx-8 ${className}`}
       style={{ background: 'var(--bg-base)' }}
     >
       {hero}
-      <div className="mx-auto space-y-8 px-4 pt-6 sm:px-6 lg:px-8">
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: durations.fast, ease: easeSmooth, delay: 0.1 }}
+        className="mx-auto space-y-8 px-4 pt-6 sm:px-6 lg:px-8"
+      >
         {children}
-      </div>
+      </motion.div>
       {modals}
-    </motion.div>
+    </div>
   )
 }
